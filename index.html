@@ -802,8 +802,9 @@
             <p><i class="fas fa-check"></i> 点击"应用筛选"按钮更新图表和表格数据</p>
             <p><i class="fas fa-check"></i> 图表实时显示选定钻孔的负压、浓度和流量变化曲线</p>
             <p><i class="fas fa-check"></i> 表格中显示详细数据，包含钻孔编号、检测日期和各参数值</p>
-            <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包括新增的始抽浓度和历史最低浓度</p>
+            <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包含新增的始抽浓度和历史最低浓度</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
+            <p><i class="fas fa-check"></i> <strong>优化说明</strong>: 瓦斯浓度图表现在会根据数据范围自动调整Y轴，在低浓度时显示更精细的刻度</p>
         </div>
         <div class="footer">
             <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: 2025-06-27</p>
@@ -1281,36 +1282,47 @@
         // 计算浓度图表y轴范围（整数范围） - 优化版
         function calculateConcentrationYAxisRange(concentrations) {
             if (concentrations.length === 0) {
-                return { min: 0, max: 30 }; // 默认显示0-30范围
+                return { min: 0, max: 5 }; // 默认显示0-5范围
             }
             
             const maxValue = Math.max(...concentrations);
             const minValue = Math.min(...concentrations);
             
-            // 计算整数y轴范围
-            let minY = Math.max(0, Math.floor(minValue));
-            let maxY = Math.ceil(maxValue);
+            // 计算合理的y轴范围
+            let minY, maxY;
             
-            // 确保最大值至少为30（显示警戒线）
-            if (maxY < 30) {
+            // 低浓度情况：最大值小于10%
+            if (maxValue < 10) {
+                // 设置最小值
+                minY = Math.max(0, minValue * 0.8);
+                
+                // 设置最大值：最大值的1.2倍或5，取较大值
+                maxY = Math.max(maxValue * 1.2, 5);
+                
+                // 如果数据变化很小（最大值-最小值 < 0.5），则设置固定范围
+                if (maxValue - minValue < 0.5) {
+                    minY = Math.max(0, minValue - 0.5);
+                    maxY = minY + 1;
+                }
+            } 
+            // 中等浓度情况：10%到30%之间
+            else if (maxValue < 30) {
+                minY = 0;
                 maxY = 30;
             } 
-            // 如果最大值在30-85之间，显示到85
-            else if (maxY < 85) {
+            // 高浓度情况：30%到85%之间
+            else if (maxValue < 85) {
+                minY = 0;
                 maxY = 85;
-            }
-            // 如果最大值大于85，显示到100
+            } 
+            // 超高浓度情况
             else {
+                minY = 0;
                 maxY = 100;
             }
             
             // 确保最小值不低于0
             minY = Math.max(minY, 0);
-            
-            // 确保范围合理（至少5个单位）
-            if (maxY - minY < 5) {
-                maxY = minY + 5;
-            }
             
             return { min: minY, max: maxY };
         }
@@ -1510,10 +1522,10 @@
             // 计算浓度图表y轴范围
             const concentrationRange = concentrationData.data.length > 0 ? 
                 calculateConcentrationYAxisRange(concentrationData.data) : 
-                { min: 0, max: 30 };
+                { min: 0, max: 5 };
             
             // 更新范围信息
-            concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min}% - ${concentrationRange.max}%`;
+            concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min.toFixed(2)}% - ${concentrationRange.max.toFixed(2)}%`;
             
             // 创建新图表
             pressureChart = new Chart(ctx1, {
@@ -1685,10 +1697,12 @@
                             },
                             ticks: {
                                 color: '#a0a0a0',
-                                stepSize: 1, // 设置步长为1
-                                precision: 0, // 确保只显示整数
+                                // 根据范围自动调整精度
                                 callback: function(value) {
-                                    return value + '%'; // 添加百分比符号
+                                    if (concentrationRange.max <= 10) {
+                                        return value.toFixed(1) + '%';
+                                    }
+                                    return value + '%';
                                 }
                             }
                         }
