@@ -159,7 +159,7 @@
             min-width: 180px;
         }
         
-        .btn-apply {
+        .btn-apply, .btn-upload {
             background: linear-gradient(135deg, #3498db, #2980b9);
             color: white;
             border: none;
@@ -175,10 +175,18 @@
             gap: 8px;
         }
         
-        .btn-apply:hover {
+        .btn-apply:hover, .btn-upload:hover {
             transform: translateY(-3px);
             box-shadow: 0 6px 20px rgba(52, 152, 219, 0.7);
             background: linear-gradient(135deg, #2980b9, #3498db);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
         }
         
         .summary {
@@ -480,7 +488,6 @@
             margin-right: 5px;
         }
         
-        /* 新增：警戒线标签样式 */
         .annotation-label {
             background-color: rgba(0, 0, 0, 0.7);
             padding: 4px 8px;
@@ -489,7 +496,6 @@
             color: white;
         }
         
-        /* 新增：系统状态指示器 */
         .system-status-indicator {
             position: fixed;
             top: 20px;
@@ -648,6 +654,118 @@
             color: #a0d2ff;
             margin-top: 5px;
         }
+        
+        /* 数据上传表单样式 */
+        .upload-form {
+            background: rgba(25, 40, 55, 0.9);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 20px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .form-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .form-control {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-control label {
+            margin-bottom: 8px;
+            color: #a0d2ff;
+            font-weight: 600;
+        }
+        
+        .form-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(12, 28, 41, 0.95);
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: rgba(30, 45, 62, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        
+        .modal-title {
+            font-size: 1.8rem;
+            color: #a0d2ff;
+        }
+        
+        .close-modal {
+            background: none;
+            border: none;
+            color: #e74c3c;
+            font-size: 1.5rem;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s ease;
+        }
+        
+        .close-modal:hover {
+            background: rgba(231, 76, 60, 0.2);
+        }
+        
+        .upload-status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        
+        .upload-success {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            border: 1px solid #2ecc71;
+        }
+        
+        .upload-error {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
     </style>
 </head>
 <body>
@@ -666,6 +784,64 @@
         <span id="status-text">系统就绪</span>
     </div>
     
+    <!-- 数据上传模态框 -->
+    <div class="modal" id="upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-cloud-upload-alt"></i> 上传每日钻孔数据</h3>
+                <button class="close-modal" id="close-modal">&times;</button>
+            </div>
+            
+            <div class="upload-form">
+                <div class="form-group">
+                    <div class="form-control">
+                        <label for="upload-drill-id">钻孔编号</label>
+                        <input type="text" id="upload-drill-id" placeholder="例如: A1, B2">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-date">检测日期</label>
+                        <input type="date" id="upload-date" value="">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-azimuth">方位 (°)</label>
+                        <input type="number" id="upload-azimuth" placeholder="方位角度">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-dip">倾角 (°)</label>
+                        <input type="number" id="upload-dip" placeholder="倾角角度">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-depth">孔深 (m)</label>
+                        <input type="number" id="upload-depth" placeholder="钻孔深度">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-pressure">负压 (KPa)</label>
+                        <input type="number" step="0.01" id="upload-pressure" placeholder="负压值">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-concentration">瓦斯浓度 (%)</label>
+                        <input type="number" step="0.01" id="upload-concentration" placeholder="浓度百分比">
+                    </div>
+                    <div class="form-control">
+                        <label for="upload-flow">混合流量 (m³/min)</label>
+                        <input type="number" step="0.001" id="upload-flow" placeholder="流量值">
+                    </div>
+                </div>
+                
+                <div class="upload-status" id="upload-status"></div>
+                
+                <div class="form-buttons">
+                    <button class="btn-upload btn-success" id="submit-data">
+                        <i class="fas fa-check"></i> 提交数据
+                    </button>
+                    <button class="btn-upload btn-danger" id="cancel-upload">
+                        <i class="fas fa-times"></i> 取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="container">
         <div class="header">
             <h1><i class="fas fa-industry"></i> 营脚煤矿12802高位钻孔数据分析系统</h1>
@@ -679,6 +855,9 @@
                     <i class="fas fa-exclamation-triangle"></i>
                     <span>今日瓦斯浓度超30%的钻孔: <span id="exceed-count">5</span></span>
                 </div>
+                <button class="btn-upload" id="open-upload">
+                    <i class="fas fa-plus"></i> 添加今日数据
+                </button>
             </div>
         </div>
         
@@ -833,12 +1012,12 @@
         <div class="info-text">
             <strong><i class="fas fa-info-circle"></i> 使用说明：</strong>
             <p><i class="fas fa-check"></i> 系统自动从CSV文件加载数据，确保data.csv文件存在</p>
+            <p><i class="fas fa-check"></i> 点击"添加今日数据"按钮上传新的钻孔数据</p>
             <p><i class="fas fa-check"></i> 从顶部下拉菜单中选择要分析的钻孔编号</p>
             <p><i class="fas fa-check"></i> 设置起始日期和终止日期筛选特定时间段的数据</p>
             <p><i class="fas fa-check"></i> 点击"应用筛选"按钮更新图表和表格数据</p>
             <p><i class="fas fa-check"></i> 图表实时显示选定钻孔的负压、浓度和流量变化曲线</p>
             <p><i class="fas fa-check"></i> 表格中显示详细数据，包含钻孔编号、检测日期和各参数值</p>
-            <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
         </div>
         <div class="footer">
@@ -865,6 +1044,12 @@
         const statusIcon = document.getElementById('status-indicator-icon');
         const systemLoading = document.getElementById('system-loading');
         const loadingProgress = document.getElementById('loading-progress');
+        const openUploadBtn = document.getElementById('open-upload');
+        const uploadModal = document.getElementById('upload-modal');
+        const closeModalBtn = document.getElementById('close-modal');
+        const cancelUploadBtn = document.getElementById('cancel-upload');
+        const submitDataBtn = document.getElementById('submit-data');
+        const uploadStatus = document.getElementById('upload-status');
         
         // 指标卡元素
         const avgPressureElement = document.getElementById('avg-pressure');
@@ -1074,6 +1259,24 @@
                     updateStatus('切换钻孔中...', 'loading');
                     updateChartsAndTable();
                 });
+                
+                // 数据上传相关事件
+                openUploadBtn.addEventListener('click', () => {
+                    document.getElementById('upload-date').value = getTodayDate();
+                    uploadModal.style.display = 'flex';
+                });
+                
+                closeModalBtn.addEventListener('click', () => {
+                    uploadModal.style.display = 'none';
+                    resetUploadForm();
+                });
+                
+                cancelUploadBtn.addEventListener('click', () => {
+                    uploadModal.style.display = 'none';
+                    resetUploadForm();
+                });
+                
+                submitDataBtn.addEventListener('click', submitNewData);
                 
             } catch (error) {
                 console.error('数据加载失败:', error);
@@ -1688,6 +1891,95 @@
                     }
                 }
             });
+        }
+        
+        // 重置上传表单
+        function resetUploadForm() {
+            document.getElementById('upload-drill-id').value = '';
+            document.getElementById('upload-date').value = getTodayDate();
+            document.getElementById('upload-azimuth').value = '';
+            document.getElementById('upload-dip').value = '';
+            document.getElementById('upload-depth').value = '';
+            document.getElementById('upload-pressure').value = '';
+            document.getElementById('upload-concentration').value = '';
+            document.getElementById('upload-flow').value = '';
+            uploadStatus.style.display = 'none';
+        }
+        
+        // 提交新数据
+        function submitNewData() {
+            const drillId = document.getElementById('upload-drill-id').value.trim();
+            const date = document.getElementById('upload-date').value;
+            const azimuth = parseFloat(document.getElementById('upload-azimuth').value);
+            const dip = parseFloat(document.getElementById('upload-dip').value);
+            const depth = parseFloat(document.getElementById('upload-depth').value);
+            const pressure = parseFloat(document.getElementById('upload-pressure').value);
+            const concentration = parseFloat(document.getElementById('upload-concentration').value);
+            const flow = parseFloat(document.getElementById('upload-flow').value);
+            
+            // 验证数据
+            if (!drillId || !date || isNaN(azimuth) || isNaN(dip) || isNaN(depth) || 
+                isNaN(pressure) || isNaN(concentration) || isNaN(flow)) {
+                uploadStatus.textContent = '请填写所有字段并确保数值有效';
+                uploadStatus.className = 'upload-status upload-error';
+                uploadStatus.style.display = 'block';
+                return;
+            }
+            
+            // 创建新数据行
+            const newData = {
+                '钻孔编号': drillId,
+                '检测日期': date,
+                '方位': azimuth,
+                '倾角': dip,
+                '孔深': depth,
+                '负压': pressure,
+                '瓦斯浓度': concentration,
+                '混合流量': flow
+            };
+            
+            // 添加到数据集中
+            if (!allDrillData[drillId]) {
+                allDrillData[drillId] = {
+                    azimuth: azimuth,
+                    dip: dip,
+                    depth: depth,
+                    dates: [],
+                    pressure: [],
+                    concentration: [],
+                    flow: []
+                };
+            }
+            
+            allDrillData[drillId].dates.push(date);
+            allDrillData[drillId].pressure.push(pressure);
+            allDrillData[drillId].concentration.push(concentration);
+            allDrillData[drillId].flow.push(flow);
+            
+            // 更新最新日期
+            if (date > latestDataDate) {
+                latestDataDate = date;
+                lastUpdateElement.textContent = latestDataDate;
+                lastUpdateFooter.textContent = latestDataDate;
+            }
+            
+            // 更新钻孔选择框
+            populateDrillSelect(allDrillData);
+            
+            // 显示成功消息
+            uploadStatus.textContent = `数据已成功添加: ${drillId} (${date})`;
+            uploadStatus.className = 'upload-status upload-success';
+            uploadStatus.style.display = 'block';
+            
+            // 3秒后关闭模态框
+            setTimeout(() => {
+                uploadModal.style.display = 'none';
+                resetUploadForm();
+                
+                // 重新加载数据
+                updateStatus('更新数据中...', 'loading');
+                updateChartsAndTable();
+            }, 3000);
         }
         
         // 页面加载时初始化
