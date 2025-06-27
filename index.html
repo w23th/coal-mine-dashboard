@@ -564,6 +564,14 @@
         .status-offline {
             background-color: #e74c3c;
         }
+        
+        .range-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #a0d2ff;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -704,6 +712,7 @@
                         <span>严重超标 (85%)</span>
                     </div>
                 </div>
+                <div class="range-info" id="concentration-range-info">Y轴范围: 0% - 100%</div>
             </div>
             <div class="card">
                 <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-fan"></i> 混合流量变化曲线 (m³/min)</div>
@@ -777,6 +786,7 @@
             <p><i class="fas fa-check"></i> 表格中显示详细数据，包含钻孔编号、检测日期和各参数值</p>
             <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包括新增的始抽浓度和历史最低浓度</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
+            <p><i class="fas fa-check"></i> 瓦斯浓度图表现在会根据每个钻孔的浓度值自动调整Y轴范围，确保低浓度钻孔的数据也能清晰显示</p>
         </div>
         <div class="footer">
             <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: 2025-06-27</p>
@@ -784,7 +794,7 @@
     </div>
 
     <script>
-        // 模拟数据（已修复语法错误）
+        // 模拟数据
         const drillData = {
             A1: {
                 azimuth: 53,
@@ -1160,6 +1170,7 @@
         const exceedCountElement = document.getElementById('exceed-count');
         const tableLoadingOverlay = document.getElementById('table-loading');
         const alertLoadingOverlay = document.getElementById('alert-loading');
+        const concentrationRangeInfo = document.getElementById('concentration-range-info');
         
         // 图表实例
         let pressureChart, concentrationChart, flowChart;
@@ -1249,6 +1260,38 @@
             // 按浓度从高到低排序
             highConcentrationDrills.sort((a, b) => b.concentration - a.concentration);
             return highConcentrationDrills;
+        }
+        
+        // 计算浓度图表y轴范围
+        function calculateConcentrationYAxisRange(concentrations) {
+            if (concentrations.length === 0) {
+                return { min: 0, max: 10 };
+            }
+            
+            const maxValue = Math.max(...concentrations);
+            const minValue = Math.min(...concentrations);
+            
+            // 计算合适的y轴范围
+            let minY = 0;
+            let maxY;
+            
+            // 如果最大值小于1，那么将最大值设为1.5，这样低浓度也能看到变化
+            if (maxValue < 1) {
+                maxY = 1.5;
+            } else if (maxValue < 10) {
+                maxY = maxValue * 1.5; // 对于小于10%的，乘以1.5倍，让顶部有空间
+            } else {
+                maxY = maxValue * 1.1; // 其他情况，乘以1.1倍
+            }
+            
+            // 如果最小值大于0，可以适当调整最小值
+            if (minValue > 0 && minValue < maxY * 0.1) {
+                minY = 0;
+            } else if (minValue > 0) {
+                minY = minValue * 0.9;
+            }
+            
+            return { min: minY, max: maxY };
         }
         
         // 更新图表和表格
@@ -1443,6 +1486,14 @@
             if (concentrationChart) concentrationChart.destroy();
             if (flowChart) flowChart.destroy();
             
+            // 计算浓度图表y轴范围
+            const concentrationRange = concentrationData.data.length > 0 ? 
+                calculateConcentrationYAxisRange(concentrationData.data) : 
+                { min: 0, max: 10 };
+            
+            // 更新范围信息
+            concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min.toFixed(2)}% - ${concentrationRange.max.toFixed(2)}%`;
+            
             // 创建新图表
             pressureChart = new Chart(ctx1, {
                 type: 'line',
@@ -1597,9 +1648,8 @@
                             }
                         },
                         y: {
-                            beginAtZero: false,
-                            suggestedMin: 0,
-                            max: 100,
+                            min: concentrationRange.min,
+                            max: concentrationRange.max,
                             title: {
                                 display: true,
                                 text: '%',
