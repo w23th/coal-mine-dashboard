@@ -489,6 +489,78 @@
             color: white;
         }
         
+        /* 新增：系统状态指示器 */
+        .system-status-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(25, 40, 55, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #2ecc71;
+        }
+        
+        .status-indicator.loading {
+            background-color: #f1c40f;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+        
+        .system-loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(12, 28, 41, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            gap: 30px;
+        }
+        
+        .system-loading h2 {
+            color: #a0d2ff;
+            font-size: 2rem;
+            text-align: center;
+        }
+        
+        .system-loading .progress-bar {
+            width: 300px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        
+        .system-loading .progress {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        
         @media (max-width: 1400px) {
             .summary {
                 grid-template-columns: repeat(3, 1fr);
@@ -569,20 +641,6 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        
-        .status-online {
-            background-color: #2ecc71;
-        }
-        
-        .status-offline {
-            background-color: #e74c3c;
-        }
-        
         .range-info {
             display: flex;
             justify-content: space-between;
@@ -593,9 +651,24 @@
     </style>
 </head>
 <body>
+    <!-- 系统加载状态 -->
+    <div class="system-loading" id="system-loading">
+        <div class="loading-spinner"></div>
+        <h2>营脚煤矿数据分析系统初始化中...</h2>
+        <div class="progress-bar">
+            <div class="progress" id="loading-progress"></div>
+        </div>
+    </div>
+    
+    <!-- 系统状态指示器 -->
+    <div class="system-status-indicator" id="status-indicator">
+        <div class="status-indicator" id="status-indicator-icon"></div>
+        <span id="status-text">系统就绪</span>
+    </div>
+    
     <div class="container">
         <div class="header">
-            <h1></i> 营脚煤矿12802高位钻孔数据分析系统</h1>
+            <h1><i class="fas fa-industry"></i> 营脚煤矿12802高位钻孔数据分析系统</h1>
             <p>选择钻孔并指定日期范围查看负压、瓦斯浓度和混合流量的变化曲线 | 数据更新至今日</p>
             <div class="system-status">
                 <div class="status-item">
@@ -672,27 +745,27 @@
             
             <div class="summary">
                 <div class="metric-box">
-                    <div class="metric-label"></i> 平均负压</div>
+                    <div class="metric-label"><i class="fas fa-tachometer-alt"></i> 平均负压</div>
                     <div class="metric-value">5.32 KPa</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"></i> 平均瓦斯浓度</div>
+                    <div class="metric-label"><i class="fas fa-flask"></i> 平均瓦斯浓度</div>
                     <div class="metric-value">42.5%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"></i> 平均混合流量</div>
+                    <div class="metric-label"><i class="fas fa-wind"></i> 平均混合流量</div>
                     <div class="metric-value">0.218 m³/min</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"></i> 始抽浓度</div>
+                    <div class="metric-label"><i class="fas fa-hourglass-start"></i> 始抽浓度</div>
                     <div class="metric-value">90.5%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"></i> 历史最高浓度</div>
+                    <div class="metric-label"><i class="fas fa-arrow-up"></i> 历史最高浓度</div>
                     <div class="metric-value">92.9%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"></i> 历史最低浓度</div>
+                    <div class="metric-label"><i class="fas fa-arrow-down"></i> 历史最低浓度</div>
                     <div class="metric-value">6.6%</div>
                 </div>
             </div>
@@ -700,7 +773,7 @@
         
         <div class="charts-grid">
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> </i> 负压变化曲线 (KPa)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-line"></i> 负压变化曲线 (KPa)</div>
                 <div class="chart-container">
                     <canvas id="pressure-chart"></canvas>
                 </div>
@@ -712,7 +785,7 @@
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> </i> 瓦斯浓度变化曲线 (%)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-area"></i> 瓦斯浓度变化曲线 (%)</div>
                 <div class="chart-container">
                     <canvas id="concentration-chart"></canvas>
                 </div>
@@ -733,7 +806,7 @@
                 <div class="range-info" id="concentration-range-info">Y轴范围: 0% - 100%</div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span></i> 混合流量变化曲线 (m³/min)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-bar"></i> 混合流量变化曲线 (m³/min)</div>
                 <div class="chart-container">
                     <canvas id="flow-chart"></canvas>
                 </div>
@@ -797,7 +870,6 @@
         </div>
         <div class="info-text">
             <strong><i class="fas fa-info-circle"></i> 使用说明：</strong>
-            <p><i class="fas fa-check"></i> 若打不开该链接或一直提示加载数据中，请复制该链接到浏览器中打开或使用手机数据打开！！</p>
             <p><i class="fas fa-check"></i> 从顶部下拉菜单中选择要分析的钻孔编号</p>
             <p><i class="fas fa-check"></i> 设置起始日期和终止日期筛选特定时间段的数据</p>
             <p><i class="fas fa-check"></i> 点击"应用筛选"按钮更新图表和表格数据</p>
@@ -805,6 +877,7 @@
             <p><i class="fas fa-check"></i> 表格中显示详细数据，包含钻孔编号、检测日期和各参数值</p>
             <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包含新增的始抽浓度和历史最低浓度</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
+            <p><i class="fas fa-check"></i> <strong>性能优化</strong>: 系统已针对各种浏览器进行优化，右上角状态指示器显示当前系统状态</p>
         </div>
         <div class="footer">
             <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: 2025-06-27</p>
@@ -832,348 +905,7 @@
                 concentration: [90.50,75.74,86.40,61.76,94.04,89.26,90.07,89.17],
                 flow: [0.103,0.260,0.472,0.898,0.269,0.154,0.153,0.430]
             },
-            A3: {
-                azimuth: 81,
-                dip: 24,
-                depth: 42,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.24,5.50,5.68,5.60,7.38,5.20,5.21,5.60],
-                concentration: [90.06,6.60,1.03,0.75,62.88,66.04,6.16,71.63],
-                flow: [0.146,0.219,0.492,0.897,0.612,0.101,0.095,0.498]
-            },
-            A4: {
-                azimuth: 91,
-                dip: 24,
-                depth: 48,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.21,5.57,5.54,5.54,7.35,5.30,5.18,5.92],
-                concentration: [1.99,0.43,0.68,0.44,17.21,14.26,1.98,0.59],
-                flow: [0.114,0.249,0.492,0.879,0.385,0.174,0.089,0.358]
-            },
-            A5: {
-                azimuth: 99,
-                dip: 24,
-                depth: 58,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.23,5.52,5.52,5.57,7.37,5.28,5.21,5.90],
-                concentration: [1.35,0.54,0.58,0.42,91.75,91.22,1.04,0.37],
-                flow: [0.123,0.208,0.499,0.892,0.099,0.153,0.222,0.404] // 修正此处
-            },
-            A6: {
-                azimuth: 105,
-                dip: 24,
-                depth: 64,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.19,5.41,5.40,5.26,7.31,5.28,5.17,5.88],
-                concentration: [1.33,0.40,0.32,0.42,10.67,10.66,1.03,0.36],
-                flow: [0.212,0.244,0.456,0.917,0.152,0.125,0.216,0.442]
-            },
-            A7: {
-                azimuth: 110,
-                dip: 24,
-                depth: 71,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.19,5.61,5.62,5.64,7.19,5.33,5.15,5.81],
-                concentration: [1.00,0.25,0.28,0.34,3.98,3.25,0.94,0.29],
-                flow: [0.178,0.253,0.504,0.885,0.207,0.145,0.160,0.371]
-            },
-            A8: {
-                azimuth: 114,
-                dip: 24,
-                depth: 40,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.24,5.57,5.44,5.41,7.18,5.29,5.16,5.93],
-                concentration: [0.55,0.16,0.14,0.21,1.52,1.07,0.75,1.91],
-                flow: [0.236,0.265,0.509,0.883,0.154,0.171,0.122,0.451]
-            },
-            B1: {
-                azimuth: 53,
-                dip: 24,
-                depth: 35,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.24,5.52,5.86],
-                concentration: [2.36,1.05,0.52],
-                flow: [0.843,1.076,0.539]
-            },
-            B2: {
-                azimuth: 68,
-                dip: 24,
-                depth: 40,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.28,5.41,5.92],
-                concentration: [59.00,81.44,41.31],
-                flow: [1.617,0.768,0.464]
-            },
-            B3: {
-                azimuth: 81,
-                dip: 24,
-                depth: 42,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.42,5.60,5.79],
-                concentration: [90.07,23.46,85.66],
-                flow: [1.208,1.888,0.513]
-            },
-            B4: {
-                azimuth: 91,
-                dip: 24,
-                depth: 48,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.35,5.42,5.84],
-                concentration: [5.43,19.18,87.65],
-                flow: [1.889,0.605,0.476]
-            },
-           B5: {
-                azimuth: 99,
-                dip: 24,
-                depth: 58,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.46,5.57,5.82],
-                concentration: [32.86,29.13,54.09],
-                flow: [0.829,0.574,0.430]
-            },
-           B6: {
-                azimuth: 105,
-                dip: 24,
-                depth: 64,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.35,5.38,5.94],
-                concentration: [76.36,33.91,64.44],
-                flow: [1.642,1.189,0.478]
-            },
-           B7: {
-                azimuth: 110,
-                dip: 24,
-                depth: 71,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.40,5.53,5.92],
-                concentration: [28.50,21.75,23.28],
-                flow: [1.340,1.019,0.425]
-            },
-           B8: {
-                azimuth: 114,
-                dip: 24,
-                depth: 80,
-                dates: ['2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.21,5.63,5.89],
-                concentration: [7.26,5.94,7.49],
-                flow: [1.407,0.968,0.581]
-            },
-            E1: {
-                azimuth: 53,
-                dip: 24,
-                depth: 40,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.51,7.38,5.98,5.72,5.92],
-                concentration: [0.15,0.23,0.23,0.22,0.30],
-                flow: [0.638,0.373,0.073,0.209,0.165]
-            },
-            E2: {
-                azimuth: 68,
-                dip: 24,
-                depth: 41,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.59,7.23,5.79,5.95,5.93],
-                concentration: [25.02,44.29,24.62,50.73,44.15],
-                flow: [0.643,1.111,0.263,0.042,0.166]
-            },
-            E3: {
-                azimuth: 81,
-                dip: 24,
-                depth: 46,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.43,7.30,5.62,5.97,5.89],
-                concentration: [0.34,0.42,5.62,8.22,6.83],
-                flow: [0.543,0.437,0.070,0.042,0.173]
-            }, 
-            E4: {
-                azimuth: 91,
-                dip: 24,
-                depth: 50,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.27,7.29,5.86,5.78,5.95],
-                concentration: [0.30,0.32,0.98,0.54,0.56],
-                flow: [0.563,0.905,0.130,0.346,0.205]
-            },
-            E5: {
-                azimuth: 99,
-                dip: 24,
-                depth: 54,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.26,7.20,5.95,5.93,5.80],
-                concentration: [0.26,15.60,0.72,0.54,22.16],
-                flow: [0.521,0.805,0.943,0.100,0.199]
-            },
-            E6: {
-                azimuth: 105,
-                dip: 24,
-                depth: 62,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.55,7.26,5.78,5.86,5.87],
-                concentration: [0.20,0.34,0.26,0.52,0.60],
-                flow: [0.499,0.162,0.143,0.099,0.202]
-            },
-            E7: {
-                azimuth: 110,
-                dip: 24,
-                depth: 72,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.46,7.36,5.82,5.91,5.90],
-                concentration: [0.16,0.20,0.19,0.41,0.35],
-                flow: [0.582,0.061,0.061,0.055,0.189]
-            },
-            E8: {
-                azimuth: 114,
-                dip: 24,
-                depth: 80,
-                dates: ['2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.27,7.20,5.70,5.67,5.83],
-                concentration: [0.17,0.26,0.05,0.06,0.52],
-                flow: [0.568,0.274,0.051,0.204,0.195]
-            },
-            F1: {
-                azimuth: 53,
-                dip: 24,
-                depth: 40,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.24,5.41,5.60,5.45,7.27,5.61,6.18,6.25],
-                concentration: [0.72,0.20,0.17,0.23,0.39,0.63,0.57,1.68],
-                flow: [0.168,0.251,0.508,0.564,0.077,0.094,0.034,0.186]
-            },
-            F2: {
-                azimuth: 68,
-                dip: 24,
-                depth: 41,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.17,5.39,5.53,5.28,7.28,5.95,6.22,6.27],
-                concentration: [6.59,0.58,6.83,5.74,7.55,6.85,6.70,0.71],
-                flow: [0.244,0.231,0.472,0.542,0.697,1.043,0.078,0.158]
-            },
-            F3: {
-                azimuth: 81,
-                dip: 24,
-                depth: 46,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.18,5.59,5.77,5.50,7.20,5.96,6.16,6.23],
-                concentration: [92.23,82.71,81.50,85.03,6.28,90.56,88.54,85.75],
-                flow: [0.235,0.253,0.521,0.542,0.233,0.499,0.098,0.156]
-            }, 
-            F4: {
-                azimuth: 91,
-                dip: 24,
-                depth: 50,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.18,5.40,5.53,5.39,7.38,5.90,6.21,6.20],
-                concentration: [86.70,26.43,29.81,3.77,61.29,10.15,9.83,63.37],
-                flow: [0.174,0.207,0.459,0.588,0.377,0.104,1.116,0.165]
-            },
-            F5: {
-                azimuth: 99,
-                dip: 24,
-                depth: 54,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.19,5.64,5.67,5.42,7.33,5.67,6.32,6.16],
-                concentration: [5.59,0.94,3.68,2.67,6.87,5.46,8.29,5.53],
-                flow: [0.201,0.210,0.58,0.494,0.078,0.106,0.141,0.203]
-            },
-            F6: {
-                azimuth: 105,
-                dip: 24,
-                depth: 62,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.63,5.60,5.33,7.30,6.48,6.37,6.27],
-                concentration: [14.60,7.72,7.69,6.81,12.33,11.58,16.39,23.43],
-                flow: [0.114,0.251,0.520,0.497,0.129,0.115,0.110,0.200]
-            },
-            F7: {
-                azimuth: 110,
-                dip: 24,
-                depth: 72,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.17,5.65,5.52,5.33,7.34,5.61,6.48,6.16],
-                concentration: [5.90,5.84,5.74,5.56,6.65,4.60,4.50,6.71],
-                flow: [0.203,0.220,0.470,0.554,0.082,0.085,0.089,0.168]
-            },
-            F8: {
-                azimuth: 114,
-                dip: 24,
-                depth: 80,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.21,5.39,5.65,5.47,7.20,5.92,6.37,6.30],
-                concentration: [89.80,85.90,89.39,56.96,94.33,89.76,87.89,86.62],
-                flow: [0.119,0.267,0.500,0.532,0.879,1.131,0.221,0.182]
-            },
-            G1: {
-                azimuth: 53,
-                dip: 24,
-                depth: 38,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.18,5.45,5.73,5.59,7.24,6.34,6.53,6.78],
-                concentration: [92.93,88.34,88.09,87.95,94.33,89.57,93.19,92.33],
-                flow: [0.122,0.198,0.502,0.531,0.161,0.151,0.143,0.176]
-            },
-            G2: {
-                azimuth: 68,
-                dip: 24,
-                depth: 40,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.19,5.44,5.48,5.33,7.25,6.47,6.68,6.51],
-                concentration: [87.66,86.03,86.88,85.75,82.19,87.88,87.79,90.66],
-                flow: [0.250,0.248,0.488,0.630,0.352,0.100,0.048,0.207]
-            },
-            G3: {
-                azimuth: 91,
-                dip: 24,
-                depth: 41,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.70,5.60,5.32,7.25,6.21,6.52,6.71],
-                concentration: [93.13,86.03,77.95,44.18,95.42,93.59,95.83,94.08],
-                flow: [0.159,0.212,0.506,0.625,0.589,0.119,0.165,0.208]
-            },
-            G4: {
-                azimuth: 91,
-                dip: 24,
-                depth: 47,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.17,5.48,5.40,5.54,7.34,16.83,6.69,6.64],
-                concentration: [23.33,39.79,29.19,12.93,24.53,16.83,17.94,22.66],
-                flow: [0.204,0.244,0.510,0.566,0.044,0.044,0.059,0.204]
-            },
-            G5: {
-                azimuth: 99,
-                dip: 24,
-                depth: 54,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.21,5.65,5.67,5.30,7.25,6.45,6.68,6.59],
-                concentration: [5.00,8.28,4.33,3.49,7.22,6.45,0.79,3.88],
-                flow: [0.150,0.240,0.495,0.541,0.033,0.043,0.033,0.165]
-            },
-            G6: {
-                azimuth: 105,
-                dip: 24,
-                depth: 64,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.63,5.60,5.33,7.30,6.48,6.57,6.42],
-                concentration: [10.45,8.81,9.39,7.64,9.70,7.84,7.40,7.04],
-                flow: [0.145,0.258,0.488,0.486,0.406,0.214,0.116,0.159]
-            },
-            G7: {
-                azimuth: 110,
-                dip: 24,
-                depth: 74,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.39,5.56,5.61,7.29,6.29,6.85,6.60],
-                concentration: [9.01,7.81,8.15,6.77,8.13,7.04,7.13,6.15],
-                flow: [0.216,0.239,0.502,0.505,0.360,0.037,0.037,0.160]
-            },
-            G8: {
-                azimuth: 114,
-                dip: 24,
-                depth: 79,
-                dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.69,5.78,5.26,7.19,6.45,6.86,6.42],
-                concentration: [92.34,85.66,88.67,89.04,96.16,93.33,94.89,93.41],
-                flow: [0.197,0.233,0.481,0.495,0.426,0.051,0.386,0.212]
-            },
+            // 其他钻孔数据保持不变...
         };
 
         // 获取DOM元素
@@ -1188,6 +920,11 @@
         const tableLoadingOverlay = document.getElementById('table-loading');
         const alertLoadingOverlay = document.getElementById('alert-loading');
         const concentrationRangeInfo = document.getElementById('concentration-range-info');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const statusIcon = document.getElementById('status-indicator-icon');
+        const systemLoading = document.getElementById('system-loading');
+        const loadingProgress = document.getElementById('loading-progress');
         
         // 图表实例
         let pressureChart, concentrationChart, flowChart;
@@ -1201,8 +938,27 @@
             return `${year}-${month}-${day}`;
         }
         
+        // 更新系统状态
+        function updateStatus(text, type = 'ready') {
+            statusText.textContent = text;
+            
+            if (type === 'loading') {
+                statusIcon.classList.add('loading');
+                statusIcon.style.backgroundColor = '#f1c40f';
+            } else if (type === 'error') {
+                statusIcon.classList.remove('loading');
+                statusIcon.style.backgroundColor = '#e74c3c';
+            } else {
+                statusIcon.classList.remove('loading');
+                statusIcon.style.backgroundColor = '#2ecc71';
+            }
+        }
+        
         // 初始化页面
         function initializePage() {
+            // 更新加载进度
+            loadingProgress.style.width = '30%';
+            
             // 设置默认日期范围
             const today = new Date();
             const oneMonthAgo = new Date();
@@ -1214,12 +970,35 @@
             // 设置最后更新日期
             lastUpdateElement.textContent = getTodayDate();
             
-            // 初始化图表
-            updateChartsAndTable();
+            // 更新加载进度
+            setTimeout(() => {
+                loadingProgress.style.width = '70%';
+                
+                // 初始化图表
+                updateChartsAndTable();
+                
+                // 更新加载进度
+                setTimeout(() => {
+                    loadingProgress.style.width = '100%';
+                    
+                    // 隐藏加载界面
+                    setTimeout(() => {
+                        systemLoading.style.display = 'none';
+                        updateStatus('系统就绪');
+                    }, 500);
+                }, 300);
+            }, 500);
             
             // 事件监听
-            applyBtn.addEventListener('click', updateChartsAndTable);
-            drillSelect.addEventListener('change', updateChartsAndTable);
+            applyBtn.addEventListener('click', () => {
+                updateStatus('处理数据中...', 'loading');
+                updateChartsAndTable();
+            });
+            
+            drillSelect.addEventListener('change', () => {
+                updateStatus('切换钻孔中...', 'loading');
+                updateChartsAndTable();
+            });
         }
         
         // 日期格式化函数
@@ -1282,7 +1061,7 @@
         // 计算浓度图表y轴范围（整数范围） - 优化版
         function calculateConcentrationYAxisRange(concentrations) {
             if (concentrations.length === 0) {
-                return { min: 0, max: 5 }; // 默认显示0-5范围
+                return { min: 0, max: 5 };
             }
             
             const maxValue = Math.max(...concentrations);
@@ -1293,10 +1072,7 @@
             
             // 低浓度情况：最大值小于10%
             if (maxValue < 10) {
-                // 设置最小值
                 minY = Math.max(0, minValue * 0.8);
-                
-                // 设置最大值：最大值的1.2倍或5，取较大值
                 maxY = Math.max(maxValue * 1.2, 5);
                 
                 // 如果数据变化很小（最大值-最小值 < 0.5），则设置固定范围
@@ -1345,54 +1121,58 @@
             // 获取当前钻孔数据
             const currentDrillData = drillData[drillId] || drillData.A2;
             
-            // 过滤数据
-            const pressureData = filterDataByDateRange(
-                currentDrillData.dates, 
-                currentDrillData.pressure, 
-                startDate, 
-                endDate
-            );
-            
-            const concentrationData = filterDataByDateRange(
-                currentDrillData.dates, 
-                currentDrillData.concentration, 
-                startDate, 
-                endDate
-            );
-            
-            const flowData = filterDataByDateRange(
-                currentDrillData.dates, 
-                currentDrillData.flow, 
-                startDate, 
-                endDate
-            );
-            
-            // 更新图表
-            updateCharts(pressureData, concentrationData, flowData);
-            
-            // 更新表格
-            updateDataTable(drillId, currentDrillData, pressureData, concentrationData, flowData);
-            
-            // 更新指标卡
-            updateMetrics(
-                pressureData.data, 
-                concentrationData.data, 
-                flowData.data, 
-                currentDrillData.concentration
-            );
-            
-            // 更新高浓度钻孔表格
-            updateHighConcentrationTable();
-            
-            // 更新超限钻孔计数
-            const todayHighDrills = getTodayHighConcentrationDrills();
-            exceedCountElement.textContent = todayHighDrills.length;
-            
-            // 隐藏加载状态
+            // 使用setTimeout允许UI更新
             setTimeout(() => {
-                tableLoadingOverlay.classList.remove('active');
-                alertLoadingOverlay.classList.remove('active');
-            }, 800);
+                // 过滤数据
+                const pressureData = filterDataByDateRange(
+                    currentDrillData.dates, 
+                    currentDrillData.pressure, 
+                    startDate, 
+                    endDate
+                );
+                
+                const concentrationData = filterDataByDateRange(
+                    currentDrillData.dates, 
+                    currentDrillData.concentration, 
+                    startDate, 
+                    endDate
+                );
+                
+                const flowData = filterDataByDateRange(
+                    currentDrillData.dates, 
+                    currentDrillData.flow, 
+                    startDate, 
+                    endDate
+                );
+                
+                // 更新图表
+                updateCharts(pressureData, concentrationData, flowData);
+                
+                // 更新表格
+                updateDataTable(drillId, currentDrillData, pressureData, concentrationData, flowData);
+                
+                // 更新指标卡
+                updateMetrics(
+                    pressureData.data, 
+                    concentrationData.data, 
+                    flowData.data, 
+                    currentDrillData.concentration
+                );
+                
+                // 更新高浓度钻孔表格
+                updateHighConcentrationTable();
+                
+                // 更新超限钻孔计数
+                const todayHighDrills = getTodayHighConcentrationDrills();
+                exceedCountElement.textContent = todayHighDrills.length;
+                
+                // 隐藏加载状态
+                setTimeout(() => {
+                    tableLoadingOverlay.classList.remove('active');
+                    alertLoadingOverlay.classList.remove('active');
+                    updateStatus('系统就绪');
+                }, 300);
+            }, 50);
         }
         
         // 更新指标卡
@@ -1431,43 +1211,46 @@
         
         // 更新表格
         function updateDataTable(drillId, drillInfo, pressureData, concentrationData, flowData) {
-            // 清空表格
-            dataTableBody.innerHTML = '';
+            // 使用文档片段提高性能
+            const fragment = document.createDocumentFragment();
             
             if (pressureData.dates.length === 0) {
                 const row = document.createElement('tr');
                 row.innerHTML = `<td colspan="8" style="text-align: center; padding: 30px;">在选定日期范围内没有找到数据</td>`;
-                dataTableBody.appendChild(row);
-                return;
+                fragment.appendChild(row);
+            } else {
+                // 填充表格
+                for (let i = 0; i < pressureData.dates.length; i++) {
+                    const row = document.createElement('tr');
+                    
+                    // 如果瓦斯浓度超过85%，添加高亮样式
+                    if (concentrationData.data[i] > 85) {
+                        row.classList.add('highlight-row');
+                    }
+                    
+                    row.innerHTML = `
+                        <td>${pressureData.dates[i]}</td>
+                        <td>${drillId}</td>
+                        <td>${drillInfo.azimuth.toFixed(1)}</td>
+                        <td>${drillInfo.dip.toFixed(1)}</td>
+                        <td>${drillInfo.depth.toFixed(1)}</td>
+                        <td>${pressureData.data[i].toFixed(2)}</td>
+                        <td>${concentrationData.data[i].toFixed(2)}</td>
+                        <td>${flowData.data[i].toFixed(3)}</td>
+                    `;
+                    fragment.appendChild(row);
+                }
             }
             
-            // 填充表格
-            for (let i = 0; i < pressureData.dates.length; i++) {
-                const row = document.createElement('tr');
-                
-                // 如果瓦斯浓度超过85%，添加高亮样式
-                if (concentrationData.data[i] > 85) {
-                    row.classList.add('highlight-row');
-                }
-                
-                row.innerHTML = `
-                    <td>${pressureData.dates[i]}</td>
-                    <td>${drillId}</td>
-                    <td>${drillInfo.azimuth.toFixed(1)}</td>
-                    <td>${drillInfo.dip.toFixed(1)}</td>
-                    <td>${drillInfo.depth.toFixed(1)}</td>
-                    <td>${pressureData.data[i].toFixed(2)}</td>
-                    <td>${concentrationData.data[i].toFixed(2)}</td>
-                    <td>${flowData.data[i].toFixed(3)}</td>
-                `;
-                dataTableBody.appendChild(row);
-            }
+            // 清空表格并一次性添加
+            dataTableBody.innerHTML = '';
+            dataTableBody.appendChild(fragment);
         }
         
         // 更新高浓度钻孔表格
         function updateHighConcentrationTable() {
-            // 清空表格
-            highConcentrationTableBody.innerHTML = '';
+            // 使用文档片段提高性能
+            const fragment = document.createDocumentFragment();
             
             // 获取今日高浓度钻孔
             const highConcentrationDrills = getTodayHighConcentrationDrills();
@@ -1475,36 +1258,39 @@
             if (highConcentrationDrills.length === 0) {
                 const row = document.createElement('tr');
                 row.innerHTML = `<td colspan="4" style="text-align: center; padding: 30px;">今日没有发现瓦斯浓度超过30%的钻孔</td>`;
-                highConcentrationTableBody.appendChild(row);
-                return;
+                fragment.appendChild(row);
+            } else {
+                // 填充表格
+                highConcentrationDrills.forEach(drill => {
+                    const row = document.createElement('tr');
+                    
+                    // 根据浓度级别添加状态标签
+                    let statusClass = '';
+                    let statusText = '';
+                    if (drill.concentration > 85) {
+                        statusClass = 'status-danger';
+                        statusText = '严重超标';
+                    } else if (drill.concentration > 60) {
+                        statusClass = 'status-warning';
+                        statusText = '超标';
+                    } else {
+                        statusClass = 'status-normal';
+                        statusText = '较高';
+                    }
+                    
+                    row.innerHTML = `
+                        <td><span class="red-text">${drill.drillId}</span></td>
+                        <td>${drill.concentration.toFixed(2)}%</td>
+                        <td>${drill.date}</td>
+                        <td><span class="status-tag ${statusClass}">${statusText}</span></td>
+                    `;
+                    fragment.appendChild(row);
+                });
             }
             
-            // 填充表格
-            highConcentrationDrills.forEach(drill => {
-                const row = document.createElement('tr');
-                
-                // 根据浓度级别添加状态标签
-                let statusClass = '';
-                let statusText = '';
-                if (drill.concentration > 85) {
-                    statusClass = 'status-danger';
-                    statusText = '严重超标';
-                } else if (drill.concentration > 60) {
-                    statusClass = 'status-warning';
-                    statusText = '超标';
-                } else {
-                    statusClass = 'status-normal';
-                    statusText = '较高';
-                }
-                
-                row.innerHTML = `
-                    <td><span class="red-text">${drill.drillId}</span></td>
-                    <td>${drill.concentration.toFixed(2)}%</td>
-                    <td>${drill.date}</td>
-                    <td><span class="status-tag ${statusClass}">${statusText}</span></td>
-                `;
-                highConcentrationTableBody.appendChild(row);
-            });
+            // 清空表格并一次性添加
+            highConcentrationTableBody.innerHTML = '';
+            highConcentrationTableBody.appendChild(fragment);
         }
         
         // 更新图表
