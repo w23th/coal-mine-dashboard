@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -844,7 +844,7 @@
     
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-industry"></i> 营脚煤矿12802高位钻孔数据分析系统</h1>
+            <h1></i> 营脚煤矿12802高位钻孔数据分析系统</h1>
             <p>选择钻孔并指定日期范围查看负压、瓦斯浓度和混合流量的变化曲线 | 数据更新至今日</p>
             <div class="system-status">
                 <div class="status-item">
@@ -855,16 +855,12 @@
                     <i class="fas fa-exclamation-triangle"></i>
                     <span>今日瓦斯浓度超30%的钻孔: <span id="exceed-count">5</span></span>
                 </div>
-                <button class="btn-upload" id="open-upload">
-                    <i class="fas fa-plus"></i> 添加今日数据
-                </button>
             </div>
         </div>
-        
         <div class="card">
             <div class="controls">
                 <div class="control-group">
-                    <label for="drill-select"><i class="fas fa-hammer"></i> 选择钻孔</label>
+                    <label for="drill-select"></i> 选择钻孔</label>
                     <select id="drill-select">
                         <!-- 钻孔选项将通过JS动态生成 -->
                     </select>
@@ -886,27 +882,27 @@
             
             <div class="summary">
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-tachometer-alt"></i> 平均负压</div>
+                    <div class="metric-label"></i> 平均负压</div>
                     <div class="metric-value" id="avg-pressure">5.32 KPa</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-flask"></i> 平均瓦斯浓度</div>
+                    <div class="metric-label"></i> 平均瓦斯浓度</div>
                     <div class="metric-value" id="avg-concentration">42.5%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-wind"></i> 平均混合流量</div>
+                    <div class="metric-label"></i> 平均混合流量</div>
                     <div class="metric-value" id="avg-flow">0.218 m³/min</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-hourglass-start"></i> 始抽浓度</div>
+                    <div class="metric-label"></i> 始抽浓度</div>
                     <div class="metric-value" id="initial-concentration">90.5%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-arrow-up"></i> 历史最高浓度</div>
+                    <div class="metric-label"></i> 历史最高浓度</div>
                     <div class="metric-value" id="max-concentration">92.9%</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-arrow-down"></i> 历史最低浓度</div>
+                    <div class="metric-label"></i> 历史最低浓度</div>
                     <div class="metric-value" id="min-concentration">6.6%</div>
                 </div>
             </div>
@@ -914,7 +910,7 @@
         
         <div class="charts-grid">
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-line"></i> 负压变化曲线 (KPa)</div>
+                <div class="chart-title"><span class="drill-id">A2</span></i> 负压变化曲线 (KPa)</div>
                 <div class="chart-container">
                     <canvas id="pressure-chart"></canvas>
                 </div>
@@ -926,7 +922,7 @@
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-area"></i> 瓦斯浓度变化曲线 (%)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> </i> 瓦斯浓度变化曲线 (%)</div>
                 <div class="chart-container">
                     <canvas id="concentration-chart"></canvas>
                 </div>
@@ -947,7 +943,7 @@
                 <div class="range-info" id="concentration-range-info">Y轴范围: 0% - 100%</div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-chart-bar"></i> 混合流量变化曲线 (m³/min)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> </i> 混合流量变化曲线 (m³/min)</div>
                 <div class="chart-container">
                     <canvas id="flow-chart"></canvas>
                 </div>
@@ -1012,7 +1008,6 @@
         <div class="info-text">
             <strong><i class="fas fa-info-circle"></i> 使用说明：</strong>
             <p><i class="fas fa-check"></i> 系统自动从CSV文件加载数据，确保data.csv文件存在</p>
-            <p><i class="fas fa-check"></i> 点击"添加今日数据"按钮上传新的钻孔数据</p>
             <p><i class="fas fa-check"></i> 从顶部下拉菜单中选择要分析的钻孔编号</p>
             <p><i class="fas fa-check"></i> 设置起始日期和终止日期筛选特定时间段的数据</p>
             <p><i class="fas fa-check"></i> 点击"应用筛选"按钮更新图表和表格数据</p>
@@ -1021,7 +1016,7 @@
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
         </div>
         <div class="footer">
-            <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: <span id="last-update-footer">2025-06-27</span></p>
+            <p></i> 营脚煤矿通防科 | 数据最后更新: <span id="last-update-footer">2025-06-27</span></p>
         </div>
     </div>
 
