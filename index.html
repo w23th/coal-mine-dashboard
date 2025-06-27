@@ -480,6 +480,15 @@
             margin-right: 5px;
         }
         
+        /* 新增：警戒线标签样式 */
+        .annotation-label {
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: white;
+        }
+        
         @media (max-width: 1400px) {
             .summary {
                 grid-template-columns: repeat(3, 1fr);
@@ -531,6 +540,14 @@
             .chart-title {
                 font-size: 1.2rem;
             }
+            
+            .metric-box {
+                padding: 15px;
+            }
+            
+            .metric-value {
+                font-size: 1.8rem;
+            }
         }
         
         .system-status {
@@ -538,6 +555,7 @@
             justify-content: center;
             gap: 20px;
             margin-top: 10px;
+            flex-wrap: wrap;
         }
         
         .status-item {
@@ -694,7 +712,7 @@
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span></i> 瓦斯浓度变化曲线 (%)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> </i> 瓦斯浓度变化曲线 (%)</div>
                 <div class="chart-container">
                     <canvas id="concentration-chart"></canvas>
                 </div>
@@ -786,8 +804,6 @@
             <p><i class="fas fa-check"></i> 表格中显示详细数据，包含钻孔编号、检测日期和各参数值</p>
             <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包括新增的始抽浓度和历史最低浓度</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
-            <p><i class="fas fa-check"></i> 瓦斯浓度图表现在会根据每个钻孔的浓度值自动调整Y轴范围，确保低浓度钻孔的数据也能清晰显示</p>
-            <p><i class="fas fa-check"></i> 浓度图表Y轴刻度已优化为整数显示</p>
         </div>
         <div class="footer">
             <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: 2025-06-27</p>
@@ -795,7 +811,7 @@
     </div>
 
     <script>
-        // 模拟数据
+        // 修正后的模拟数据
         const drillData = {
             A1: {
                 azimuth: 53,
@@ -840,7 +856,7 @@
                 dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
                 pressure: [5.23,5.52,5.52,5.57,7.37,5.28,5.21,5.90],
                 concentration: [1.35,0.54,0.58,0.42,91.75,91.22,1.04,0.37],
-                flow: [0.123,0.208,0.499,0.892,0.099,0.153,0.222,0.404]
+                flow: [0.123,0.208,0.499,0.892,0.099,0.153,0.222,0.404] // 修正此处
             },
             A6: {
                 azimuth: 105,
@@ -1063,7 +1079,7 @@
                 dip: 24,
                 depth: 62,
                 dates: ['2025-06-20','2025-06-21','2025-06-22','2025-06-23','2025-06-24','2025-06-25','2025-06-26','2025-06-27'],
-                pressure: [5.15,5.63,5.60,5.33,7.30,5.74,6.37,6.27],
+                pressure: [5.15,5.63,5.60,5.33,7.30,6.48,6.37,6.27],
                 concentration: [14.60,7.72,7.69,6.81,12.33,11.58,16.39,23.43],
                 flow: [0.114,0.251,0.520,0.497,0.129,0.115,0.110,0.200]
             },
@@ -1166,7 +1182,6 @@
         const applyBtn = document.getElementById('apply-date');
         const dataTableBody = document.getElementById('data-table-body');
         const highConcentrationTableBody = document.getElementById('high-concentration-table-body');
-        const drillIdElements = document.querySelectorAll('.drill-id');
         const lastUpdateElement = document.getElementById('last-update');
         const exceedCountElement = document.getElementById('exceed-count');
         const tableLoadingOverlay = document.getElementById('table-loading');
@@ -1263,29 +1278,39 @@
             return highConcentrationDrills;
         }
         
-        // 计算浓度图表y轴范围（整数范围）
+        // 计算浓度图表y轴范围（整数范围） - 优化版
         function calculateConcentrationYAxisRange(concentrations) {
             if (concentrations.length === 0) {
-                return { min: 0, max: 10 };
+                return { min: 0, max: 30 }; // 默认显示0-30范围
             }
             
             const maxValue = Math.max(...concentrations);
             const minValue = Math.min(...concentrations);
             
             // 计算整数y轴范围
-            let minY = Math.floor(minValue);
+            let minY = Math.max(0, Math.floor(minValue));
             let maxY = Math.ceil(maxValue);
             
-            // 确保范围合理
-            if (maxY - minY < 5) {
-                maxY = minY + 5; // 最小范围5个单位
+            // 确保最大值至少为30（显示警戒线）
+            if (maxY < 30) {
+                maxY = 30;
+            } 
+            // 如果最大值在30-85之间，显示到85
+            else if (maxY < 85) {
+                maxY = 85;
             }
-            
-            // 确保最大值不超过100%
-            maxY = Math.min(maxY, 100);
+            // 如果最大值大于85，显示到100
+            else {
+                maxY = 100;
+            }
             
             // 确保最小值不低于0
             minY = Math.max(minY, 0);
+            
+            // 确保范围合理（至少5个单位）
+            if (maxY - minY < 5) {
+                maxY = minY + 5;
+            }
             
             return { min: minY, max: maxY };
         }
@@ -1301,7 +1326,7 @@
             alertLoadingOverlay.classList.add('active');
             
             // 更新所有钻孔编号显示
-            drillIdElements.forEach(el => {
+            document.querySelectorAll('.drill-id').forEach(el => {
                 el.textContent = drillId;
             });
             
@@ -1485,7 +1510,7 @@
             // 计算浓度图表y轴范围
             const concentrationRange = concentrationData.data.length > 0 ? 
                 calculateConcentrationYAxisRange(concentrationData.data) : 
-                { min: 0, max: 10 };
+                { min: 0, max: 30 };
             
             // 更新范围信息
             concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min}% - ${concentrationRange.max}%`;
