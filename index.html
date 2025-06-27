@@ -666,7 +666,7 @@
                     <div class="metric-value">0.218 m³/min</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-label"><i class="fas fa-gas-pump"></i> 始抽浓度</div>
+                    <div class="metric-label"><i class="fas fa-play-circle"></i> 始抽浓度</div>
                     <div class="metric-value">90.5%</div>
                 </div>
                 <div class="metric-box">
@@ -682,7 +682,7 @@
         
         <div class="charts-grid">
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-compress-alt"></i> 负压变化曲线 (KPa)</div>
+                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-compress-arrows-alt"></i> 负压变化曲线 (KPa)</div>
                 <div class="chart-container">
                     <canvas id="pressure-chart"></canvas>
                 </div>
@@ -694,7 +694,7 @@
                 </div>
             </div>
             <div class="card">
-                <div class="chart-title"><span class="drill-id">A2</span> <i class="fas fa-flask"></i> 瓦斯浓度变化曲线 (%)</div>
+                <div class="chart-title"><span class="drill-id">A2</span><i class="fas fa-flask"></i> 瓦斯浓度变化曲线 (%)</div>
                 <div class="chart-container">
                     <canvas id="concentration-chart"></canvas>
                 </div>
@@ -787,6 +787,7 @@
             <p><i class="fas fa-check"></i> 顶部指标卡显示关键数据的统计指标，包括新增的始抽浓度和历史最低浓度</p>
             <p><i class="fas fa-check"></i> 今日瓦斯浓度超过30%的钻孔编号已标红显示</p>
             <p><i class="fas fa-check"></i> 瓦斯浓度图表现在会根据每个钻孔的浓度值自动调整Y轴范围，确保低浓度钻孔的数据也能清晰显示</p>
+            <p><i class="fas fa-check"></i> 浓度图表Y轴刻度已优化为整数显示</p>
         </div>
         <div class="footer">
             <p><i class="fas fa-industry"></i> 营脚煤矿通防科 | 数据最后更新: 2025-06-27</p>
@@ -1262,7 +1263,7 @@
             return highConcentrationDrills;
         }
         
-        // 计算浓度图表y轴范围
+        // 计算浓度图表y轴范围（整数范围）
         function calculateConcentrationYAxisRange(concentrations) {
             if (concentrations.length === 0) {
                 return { min: 0, max: 10 };
@@ -1271,25 +1272,20 @@
             const maxValue = Math.max(...concentrations);
             const minValue = Math.min(...concentrations);
             
-            // 计算合适的y轴范围
-            let minY = 0;
-            let maxY;
+            // 计算整数y轴范围
+            let minY = Math.floor(minValue);
+            let maxY = Math.ceil(maxValue);
             
-            // 如果最大值小于1，那么将最大值设为1.5，这样低浓度也能看到变化
-            if (maxValue < 1) {
-                maxY = 1.5;
-            } else if (maxValue < 10) {
-                maxY = maxValue * 1.5; // 对于小于10%的，乘以1.5倍，让顶部有空间
-            } else {
-                maxY = maxValue * 1.1; // 其他情况，乘以1.1倍
+            // 确保范围合理
+            if (maxY - minY < 5) {
+                maxY = minY + 5; // 最小范围5个单位
             }
             
-            // 如果最小值大于0，可以适当调整最小值
-            if (minValue > 0 && minValue < maxY * 0.1) {
-                minY = 0;
-            } else if (minValue > 0) {
-                minY = minValue * 0.9;
-            }
+            // 确保最大值不超过100%
+            maxY = Math.min(maxY, 100);
+            
+            // 确保最小值不低于0
+            minY = Math.max(minY, 0);
             
             return { min: minY, max: maxY };
         }
@@ -1492,7 +1488,7 @@
                 { min: 0, max: 10 };
             
             // 更新范围信息
-            concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min.toFixed(2)}% - ${concentrationRange.max.toFixed(2)}%`;
+            concentrationRangeInfo.textContent = `Y轴范围: ${concentrationRange.min}% - ${concentrationRange.max}%`;
             
             // 创建新图表
             pressureChart = new Chart(ctx1, {
@@ -1664,8 +1660,10 @@
                             },
                             ticks: {
                                 color: '#a0a0a0',
+                                stepSize: 1, // 设置步长为1
+                                precision: 0, // 确保只显示整数
                                 callback: function(value) {
-                                    return value + '%';
+                                    return value + '%'; // 添加百分比符号
                                 }
                             }
                         }
