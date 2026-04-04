@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>营脚煤矿钻孔数据分析系统 | 固定参数+动态检测</title>
+    <title>营脚煤矿钻孔数据分析系统</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
@@ -14,7 +14,6 @@
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        /* 加载期间禁止滚动 */
         body.loading-active {
             overflow: hidden;
             height: 100vh;
@@ -25,7 +24,6 @@
             min-height: 100vh;
             padding: 20px;
             background-attachment: fixed;
-            transition: overflow 0s;
         }
         .container {
             max-width: 1600px;
@@ -132,7 +130,6 @@
             padding: 5px 12px;
             border-radius: 20px;
         }
-        /* 加载遮罩层 - 完全遮罩且禁止滚动穿透 */
         .system-loading {
             position: fixed;
             top: 0;
@@ -220,7 +217,7 @@
     <span id="status-text">加载中</span>
 </div>
 
-<div class="container" id="main-container" style="visibility: visible;">
+<div class="container" id="main-container">
     <div class="header">
         <h1><i class="fas fa-chart-line"></i> 营脚煤矿高位钻孔数据分析系统</h1>
         <p>始抽数据作为首个检测点 | 曲线仅连接有数据日期（缺失日期不显示）</p>
@@ -259,7 +256,6 @@
             <button id="apply-btn" class="btn-apply"><i class="fas fa-chart-line"></i> 应用筛选</button>
         </div>
 
-        <!-- 钻孔固定参数展示区域（单孔模式下显示） -->
         <div id="drill-params-panel" style="display: none;" class="drill-params">
             <i class="fas fa-info-circle"></i> <strong>钻孔固定参数</strong>
             <span id="param-azimuth">方位角: -</span>
@@ -313,15 +309,12 @@
 </div>
 
 <script>
-    // 全局数据结构
-    let drills = [];            // 钻孔固定参数 {location, drillId, azimuth, dip, depth, startTime, startConc, startPressure, startFlow}
-    let measurements = [];     // 日常检测数据 {location, drillId, date, pressure, concentration, flow}
-    let allPoints = [];        // 合并后的所有数据点（始抽点+检测点）
-
+    let drills = [];
+    let measurements = [];
+    let allPoints = [];
     let locations = new Set();
     let pressureChart, concentrationChart, flowChart;
 
-    // DOM 元素
     const dom = {
         loadingDiv: document.getElementById('system-loading'),
         progressBar: document.getElementById('loading-progress'),
@@ -359,32 +352,48 @@
         initialConcBox: document.getElementById('initial-conc-box')
     };
 
-    // 解析CSV（通用）
-    function parseCSV(text, headersMap) {
+    // 增强的CSV解析，自动过滤无效行（列数不足或关键字段缺失）
+    function parseCSV(text, headersMap, requiredFields = []) {
         const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
         if (lines.length < 2) return [];
         const headers = lines[0].split(',').map(h => h.trim());
         const result = [];
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(',').map(v => v.trim());
-            if (values.length < headers.length) continue;
+            if (values.length < headers.length) continue; // 列数不足，跳过
+            // 检查是否全为空值（例如全是逗号但无有效内容）
+            const allEmpty = values.every(v => v === '' || v === undefined);
+            if (allEmpty) continue;
+            
             const obj = {};
+            let hasRequired = true;
             headers.forEach((h, idx) => {
                 let val = values[idx];
                 if (headersMap[h]) {
                     const key = headersMap[h];
-                    if (key === 'date' || key === 'startTime') obj[key] = val;
-                    else obj[key] = isNaN(parseFloat(val)) ? val : parseFloat(val);
+                    if (key === 'date' || key === 'startTime' || key === 'location' || key === 'drillId') {
+                        obj[key] = val;
+                    } else {
+                        obj[key] = isNaN(parseFloat(val)) ? val : parseFloat(val);
+                    }
                 } else {
                     obj[h] = val;
                 }
             });
-            result.push(obj);
+            // 检查必要字段是否存在且非空
+            for (let req of requiredFields) {
+                if (!obj[req] || obj[req] === '') {
+                    hasRequired = false;
+                    break;
+                }
+            }
+            if (hasRequired && obj.location && obj.drillId) {
+                result.push(obj);
+            }
         }
         return result;
     }
 
-    // 加载钻孔固定参数
     async function loadDrills() {
         try {
             const resp = await fetch('drills.csv', { cache: 'no-store' });
@@ -395,25 +404,18 @@
                 '孔深': 'depth', '始抽时间': 'startTime', '始抽浓度': 'startConc',
                 '始抽负压': 'startPressure', '始抽混合流量': 'startFlow'
             };
-            drills = parseCSV(text, headersMap);
-            drills = drills.map(d => ({
-                location: d.location, drillId: d.drillId, azimuth: d.azimuth, dip: d.dip, depth: d.depth,
+            let parsed = parseCSV(text, headersMap, ['location', 'drillId', 'startTime']);
+            drills = parsed.map(d => ({
+                location: d.location, drillId: String(d.drillId), azimuth: d.azimuth, dip: d.dip, depth: d.depth,
                 startTime: d.startTime, startConc: d.startConc, startPressure: d.startPressure, startFlow: d.startFlow
             }));
             return true;
         } catch (err) {
-            console.warn('加载 drills.csv 失败，使用模拟数据', err);
-            drills = [
-                { location: '12802回风巷', drillId: 'A1', azimuth: 120, dip: 25, depth: 150, startTime: '2025-01-10', startConc: 85.2, startPressure: 5.8, startFlow: 0.28 },
-                { location: '12802回风巷', drillId: 'A2', azimuth: 125, dip: 28, depth: 152, startTime: '2025-01-12', startConc: 82.5, startPressure: 5.6, startFlow: 0.26 },
-                { location: '12802运输巷', drillId: 'B1', azimuth: 110, dip: 22, depth: 148, startTime: '2025-01-15', startConc: 79.3, startPressure: 5.5, startFlow: 0.24 },
-                { location: '13001回风巷', drillId: 'C1', azimuth: 130, dip: 30, depth: 160, startTime: '2025-01-20', startConc: 88.1, startPressure: 6.0, startFlow: 0.31 }
-            ];
+            console.error('加载drills.csv失败', err);
             return false;
         }
     }
 
-    // 加载日常检测数据
     async function loadMeasurements() {
         try {
             const resp = await fetch('measurements.csv', { cache: 'no-store' });
@@ -423,43 +425,22 @@
                 '抽采地点': 'location', '钻孔编号': 'drillId', '检测日期': 'date',
                 '瓦斯浓度': 'concentration', '负压': 'pressure', '混合流量': 'flow'
             };
-            let meas = parseCSV(text, headersMap);
-            measurements = meas.map(m => ({
-                location: m.location, drillId: m.drillId, date: m.date,
+            let parsed = parseCSV(text, headersMap, ['location', 'drillId', 'date']);
+            measurements = parsed.map(m => ({
+                location: m.location, drillId: String(m.drillId), date: m.date,
                 pressure: parseFloat(m.pressure), concentration: parseFloat(m.concentration), flow: parseFloat(m.flow)
             }));
             return true;
         } catch (err) {
-            console.warn('加载 measurements.csv 失败，生成模拟检测数据（含不规则缺失日期）', err);
-            measurements = [];
-            for (let drill of drills) {
-                let startDate = new Date(drill.startTime);
-                // 模拟不规则间隔，部分日期缺失，展示曲线仅连接有效点
-                for (let i = 0; i < 12; i++) {
-                    let date = new Date(startDate);
-                    date.setDate(startDate.getDate() + i * 3 + 2); // 间隔不连续
-                    let dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-                    let days = i;
-                    let decay = Math.max(0.3, 1 - days * 0.03);
-                    measurements.push({
-                        location: drill.location,
-                        drillId: drill.drillId,
-                        date: dateStr,
-                        pressure: +(drill.startPressure * (0.9 + Math.random() * 0.2)).toFixed(2),
-                        concentration: +(drill.startConc * decay).toFixed(1),
-                        flow: +(drill.startFlow * (0.8 + Math.random() * 0.3)).toFixed(3)
-                    });
-                }
-            }
+            console.error('加载measurements.csv失败', err);
             return false;
         }
     }
 
-    // 构建全部数据点：始抽点 + 检测点（去重：若始抽点日期与检测点重复，以始抽点为准保留一次）
     function buildAllPoints() {
-        const pointMap = new Map(); // key: location|drillId|date
-        // 先添加始抽点
+        const pointMap = new Map();
         for (let drill of drills) {
+            if (!drill.startTime) continue;
             const key = `${drill.location}|${drill.drillId}|${drill.startTime}`;
             pointMap.set(key, {
                 location: drill.location,
@@ -471,7 +452,6 @@
                 isStartPoint: true
             });
         }
-        // 再添加检测点（如果日期与始抽点相同则覆盖？实际不会，因为始抽点唯一，检测点若同一天可保留但实际一般不同）
         for (let meas of measurements) {
             const key = `${meas.location}|${meas.drillId}|${meas.date}`;
             if (!pointMap.has(key)) {
@@ -484,9 +464,6 @@
                     flow: meas.flow,
                     isStartPoint: false
                 });
-            } else {
-                // 如果已存在（可能是始抽点），则忽略检测点（避免重复）
-                console.warn(`重复点: ${key}`);
             }
         }
         allPoints = Array.from(pointMap.values());
@@ -515,7 +492,10 @@
     function updateDrillSelect(location) {
         const drillSet = new Set();
         allPoints.filter(p => p.location === location).forEach(p => drillSet.add(p.drillId));
-        const drillArray = Array.from(drillSet).sort();
+        const drillArray = Array.from(drillSet).sort((a,b) => {
+            // 处理数字和字符串混合排序（如 "1","2","补2","3"）
+            return a.localeCompare(b, undefined, { numeric: true });
+        });
         dom.drillSelect.innerHTML = '';
         drillArray.forEach(d => {
             const opt = document.createElement('option');
@@ -552,7 +532,6 @@
         }
     }
 
-    // 核心筛选与渲染
     function applyFilter() {
         const location = dom.locationSelect.value;
         const rangeMode = dom.displayRange.value;
@@ -614,18 +593,12 @@
         } else {
             for (let date of dates) {
                 const dayPoints = sorted.filter(p => p.date === date);
-                if (dayPoints.length === 0) {
-                    pressureVals.push(null);
-                    concVals.push(null);
-                    flowVals.push(null);
-                } else {
-                    const avgP = dayPoints.reduce((s, p) => s + p.pressure, 0) / dayPoints.length;
-                    const avgC = dayPoints.reduce((s, p) => s + p.concentration, 0) / dayPoints.length;
-                    const avgF = dayPoints.reduce((s, p) => s + p.flow, 0) / dayPoints.length;
-                    pressureVals.push(parseFloat(avgP.toFixed(2)));
-                    concVals.push(parseFloat(avgC.toFixed(1)));
-                    flowVals.push(parseFloat(avgF.toFixed(3)));
-                }
+                const avgP = dayPoints.reduce((s, p) => s + p.pressure, 0) / dayPoints.length;
+                const avgC = dayPoints.reduce((s, p) => s + p.concentration, 0) / dayPoints.length;
+                const avgF = dayPoints.reduce((s, p) => s + p.flow, 0) / dayPoints.length;
+                pressureVals.push(parseFloat(avgP.toFixed(2)));
+                concVals.push(parseFloat(avgC.toFixed(1)));
+                flowVals.push(parseFloat(avgF.toFixed(3)));
             }
         }
 
@@ -712,7 +685,6 @@
         }
     }
 
-    // 隐藏加载层，恢复滚动
     function finishLoading() {
         dom.loadingDiv.classList.add('hidden');
         document.body.classList.remove('loading-active');
@@ -720,9 +692,7 @@
         dom.statusText.innerText = '系统就绪';
     }
 
-    // 初始化入口
     async function init() {
-        // 确保 body 有 loading-active 类，禁止滚动
         document.body.classList.add('loading-active');
         dom.progressBar.style.width = '20%';
         dom.loadingMsg.innerText = '加载钻孔固定参数...';
@@ -738,22 +708,18 @@
         dom.progressBar.style.width = '100%';
         dom.loadingMsg.innerText = '初始化完成';
 
-        // 绑定事件
         dom.locationSelect.addEventListener('change', () => {
             updateDrillSelect(dom.locationSelect.value);
             applyFilter();
         });
         dom.displayRange.addEventListener('change', () => {
-            const disabled = dom.displayRange.value === 'all';
-            dom.drillSelect.disabled = disabled;
+            dom.drillSelect.disabled = (dom.displayRange.value === 'all');
             applyFilter();
         });
         dom.drillSelect.addEventListener('change', applyFilter);
         dom.applyBtn.addEventListener('click', applyFilter);
 
         applyFilter();
-
-        // 延迟隐藏加载层，确保所有渲染完成
         setTimeout(finishLoading, 300);
     }
 
