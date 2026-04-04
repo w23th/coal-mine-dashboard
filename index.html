@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>营脚煤矿钻孔数据分析系统 | 始抽点+检测数据连续曲线</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>营脚煤矿钻孔数据分析系统 | 固定参数+动态检测</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
@@ -14,12 +14,18 @@
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
+        /* 加载期间禁止滚动 */
+        body.loading-active {
+            overflow: hidden;
+            height: 100vh;
+        }
         body {
             background: linear-gradient(135deg, #0c1c29, #1e3c5a);
             color: #e0e0e0;
             min-height: 100vh;
             padding: 20px;
             background-attachment: fixed;
+            transition: overflow 0s;
         }
         .container {
             max-width: 1600px;
@@ -126,21 +132,28 @@
             padding: 5px 12px;
             border-radius: 20px;
         }
+        /* 加载遮罩层 - 完全遮罩且禁止滚动穿透 */
         .system-loading {
             position: fixed;
-            top:0; left:0; right:0; bottom:0;
-            background: rgba(12,28,41,0.96);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(12, 28, 41, 0.98);
+            backdrop-filter: blur(4px);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 9999;
             gap: 20px;
-            transition: opacity 0.4s;
+            transition: opacity 0.4s ease;
+            pointer-events: auto;
         }
         .system-loading.hidden {
             opacity: 0;
             pointer-events: none;
+            visibility: hidden;
         }
         .loading-spinner {
             width: 50px;
@@ -174,7 +187,7 @@
             padding: 8px 15px;
             border-radius: 20px;
             font-size: 0.8rem;
-            z-index: 1000;
+            z-index: 10000;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -194,7 +207,7 @@
         }
     </style>
 </head>
-<body>
+<body class="loading-active">
 <div class="system-loading" id="system-loading">
     <div class="loading-spinner"></div>
     <h3>营脚煤矿数据分析系统</h3>
@@ -207,7 +220,7 @@
     <span id="status-text">加载中</span>
 </div>
 
-<div class="container">
+<div class="container" id="main-container" style="visibility: visible;">
     <div class="header">
         <h1><i class="fas fa-chart-line"></i> 营脚煤矿高位钻孔数据分析系统</h1>
         <p>始抽数据作为首个检测点 | 曲线仅连接有数据日期（缺失日期不显示）</p>
@@ -303,7 +316,7 @@
     // 全局数据结构
     let drills = [];            // 钻孔固定参数 {location, drillId, azimuth, dip, depth, startTime, startConc, startPressure, startFlow}
     let measurements = [];     // 日常检测数据 {location, drillId, date, pressure, concentration, flow}
-    let allPoints = [];        // 合并后的所有数据点（始抽点+检测点），每个点包含日期、负压、浓度、流量及类型标记
+    let allPoints = [];        // 合并后的所有数据点（始抽点+检测点）
 
     let locations = new Set();
     let pressureChart, concentrationChart, flowChart;
@@ -346,7 +359,7 @@
         initialConcBox: document.getElementById('initial-conc-box')
     };
 
-    // 解析CSV
+    // 解析CSV（通用）
     function parseCSV(text, headersMap) {
         const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
         if (lines.length < 2) return [];
@@ -417,13 +430,14 @@
             }));
             return true;
         } catch (err) {
-            console.warn('加载 measurements.csv 失败，生成模拟检测数据', err);
+            console.warn('加载 measurements.csv 失败，生成模拟检测数据（含不规则缺失日期）', err);
             measurements = [];
             for (let drill of drills) {
                 let startDate = new Date(drill.startTime);
-                for (let i = 0; i < 15; i++) {
+                // 模拟不规则间隔，部分日期缺失，展示曲线仅连接有效点
+                for (let i = 0; i < 12; i++) {
                     let date = new Date(startDate);
-                    date.setDate(startDate.getDate() + i * 3 + 1); // 模拟不规则间隔，部分日期缺失
+                    date.setDate(startDate.getDate() + i * 3 + 2); // 间隔不连续
                     let dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
                     let days = i;
                     let decay = Math.max(0.3, 1 - days * 0.03);
@@ -441,12 +455,13 @@
         }
     }
 
-    // 构建全部数据点：将每个钻孔的始抽点作为第一个点，再合并所有检测点
+    // 构建全部数据点：始抽点 + 检测点（去重：若始抽点日期与检测点重复，以始抽点为准保留一次）
     function buildAllPoints() {
-        allPoints = [];
-        // 1. 为每个钻孔添加始抽点（如果始抽时间不重复，直接作为一条记录）
+        const pointMap = new Map(); // key: location|drillId|date
+        // 先添加始抽点
         for (let drill of drills) {
-            allPoints.push({
+            const key = `${drill.location}|${drill.drillId}|${drill.startTime}`;
+            pointMap.set(key, {
                 location: drill.location,
                 drillId: drill.drillId,
                 date: drill.startTime,
@@ -456,19 +471,25 @@
                 isStartPoint: true
             });
         }
-        // 2. 添加日常检测点
+        // 再添加检测点（如果日期与始抽点相同则覆盖？实际不会，因为始抽点唯一，检测点若同一天可保留但实际一般不同）
         for (let meas of measurements) {
-            allPoints.push({
-                location: meas.location,
-                drillId: meas.drillId,
-                date: meas.date,
-                pressure: meas.pressure,
-                concentration: meas.concentration,
-                flow: meas.flow,
-                isStartPoint: false
-            });
+            const key = `${meas.location}|${meas.drillId}|${meas.date}`;
+            if (!pointMap.has(key)) {
+                pointMap.set(key, {
+                    location: meas.location,
+                    drillId: meas.drillId,
+                    date: meas.date,
+                    pressure: meas.pressure,
+                    concentration: meas.concentration,
+                    flow: meas.flow,
+                    isStartPoint: false
+                });
+            } else {
+                // 如果已存在（可能是始抽点），则忽略检测点（避免重复）
+                console.warn(`重复点: ${key}`);
+            }
         }
-        // 按日期、地点、钻孔排序（用于后续筛选）
+        allPoints = Array.from(pointMap.values());
         allPoints.sort((a,b) => {
             if (a.location !== b.location) return a.location.localeCompare(b.location);
             if (a.drillId !== b.drillId) return a.drillId.localeCompare(b.drillId);
@@ -476,7 +497,6 @@
         });
     }
 
-    // 更新下拉框
     function updateSelectors() {
         locations.clear();
         allPoints.forEach(p => locations.add(p.location));
@@ -506,7 +526,6 @@
         dom.drillSelect.disabled = (dom.displayRange.value === 'all');
     }
 
-    // 设置日期范围默认值（基于所有点的日期）
     function setDefaultDateRange() {
         if (allPoints.length === 0) return;
         const dates = allPoints.map(p => p.date).sort();
@@ -517,7 +536,6 @@
         dom.dataRangeSpan.innerText = `${minDate} 至 ${maxDate}`;
     }
 
-    // 显示钻孔固定参数
     function showDrillParams(location, drillId) {
         const drill = drills.find(d => d.location === location && d.drillId === drillId);
         if (drill) {
@@ -543,7 +561,6 @@
         let end = dom.endDate.value;
         if (!start || !end) return;
 
-        // 筛选点：地点 + 日期范围
         let filteredPoints = allPoints.filter(p => p.location === location && p.date >= start && p.date <= end);
         if (rangeMode === 'single' && selectedDrill) {
             filteredPoints = filteredPoints.filter(p => p.drillId === selectedDrill);
@@ -583,14 +600,11 @@
     }
 
     function renderCharts(filteredPoints, mode) {
-        // 按日期排序（升序）
         const sorted = [...filteredPoints].sort((a,b) => a.date.localeCompare(b.date));
-        const dates = [...new Set(sorted.map(p => p.date))]; // 所有有数据的日期（包括始抽点）
+        const dates = [...new Set(sorted.map(p => p.date))];
 
-        // 对于全部模式，每天可能有多个钻孔的点，需要按天聚合平均值
         let pressureVals = [], concVals = [], flowVals = [];
         if (mode === 'single') {
-            // 单孔：每个日期只对应一个点（因为同一钻孔同一天不会重复）
             for (let date of dates) {
                 const point = sorted.find(p => p.date === date);
                 pressureVals.push(point ? point.pressure : null);
@@ -598,7 +612,6 @@
                 flowVals.push(point ? point.flow : null);
             }
         } else {
-            // 全部钻孔：每天取所有钻孔的平均值
             for (let date of dates) {
                 const dayPoints = sorted.filter(p => p.date === date);
                 if (dayPoints.length === 0) {
@@ -616,7 +629,6 @@
             }
         }
 
-        // 销毁旧图表
         if (pressureChart) pressureChart.destroy();
         if (concentrationChart) concentrationChart.destroy();
         if (flowChart) flowChart.destroy();
@@ -700,8 +712,18 @@
         }
     }
 
-    // 初始化
+    // 隐藏加载层，恢复滚动
+    function finishLoading() {
+        dom.loadingDiv.classList.add('hidden');
+        document.body.classList.remove('loading-active');
+        dom.statusLed.classList.add('ready');
+        dom.statusText.innerText = '系统就绪';
+    }
+
+    // 初始化入口
     async function init() {
+        // 确保 body 有 loading-active 类，禁止滚动
+        document.body.classList.add('loading-active');
         dom.progressBar.style.width = '20%';
         dom.loadingMsg.innerText = '加载钻孔固定参数...';
         await loadDrills();
@@ -729,13 +751,10 @@
         dom.drillSelect.addEventListener('change', applyFilter);
         dom.applyBtn.addEventListener('click', applyFilter);
 
-        applyFilter(); // 初始渲染
+        applyFilter();
 
-        setTimeout(() => {
-            dom.loadingDiv.classList.add('hidden');
-            dom.statusLed.classList.add('ready');
-            dom.statusText.innerText = '系统就绪';
-        }, 500);
+        // 延迟隐藏加载层，确保所有渲染完成
+        setTimeout(finishLoading, 300);
     }
 
     if (window.Chart && window.ChartAnnotation) {
