@@ -105,7 +105,7 @@
     </div>
     <div class="card">
         <h3>检测数据明细</h3>
-        <div class="data-table-container"><table><thead>汽<th>抽采地点</th><th>钻孔编号</th><th>检测日期</th><th>负压(KPa)</th><th>瓦斯浓度(%)</th><th>混合流量(m³/min)</th></thead><tbody id="data-table-body"></tbody></table></div>
+        <div class="data-table-container"></table><thead>汽<th>抽采地点</th><th>钻孔编号</th><th>检测日期</th><th>负压(KPa)</th><th>瓦斯浓度(%)</th><th>混合流量(m³/min)</th></thead><tbody id="data-table-body"></tbody></table></div>
     </div>
     <div class="card">
         <h3>钻孔固定参数一览</h3>
@@ -116,7 +116,6 @@
 <script>
     let drills = [];          // 钻孔固定参数
     let measurements = [];    // 检测数据
-    let locations = new Set();
     let concentrationChart, pressureChart, flowChart;
 
     const dom = {
@@ -169,7 +168,7 @@
         return str;
     }
 
-    // CSV解析
+    // CSV解析，增强容错
     function parseCSV(text, requiredCols) {
         if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
         const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
@@ -253,76 +252,78 @@
         }
     }
 
-    // 构建每个钻孔的有效数据点（只包含检测点，始抽点仅当日期合理时才加入）
+    // 构建每个钻孔的数据点（检测点 + 可选的始抽点）
     function buildDrillData() {
-        const drillMap = new Map(); // key: location|drillId
-        // 先按钻孔分组检测点
+        const drillMap = new Map(); // key: location|drillId -> points数组
+        // 按钻孔分组检测点
         for (let m of measurements) {
             const key = `${m.location}|${m.drillId}`;
             if (!drillMap.has(key)) drillMap.set(key, []);
             drillMap.get(key).push(m);
         }
-        // 对每个钻孔，排序检测点，并检查始抽点是否合理
+        // 对每个钻孔，排序并尝试添加始抽点
         for (let drill of drills) {
             const key = `${drill.location}|${drill.drillId}`;
-            let points = drillMap.get(key) || [];
-            if (points.length === 0) continue; // 无检测数据，不显示该钻孔
+            let points = drillMap.get(key);
+            if (!points || points.length === 0) continue; // 无检测数据，不显示该钻孔
             points.sort((a,b) => a.date.localeCompare(b.date));
-            const firstMeasDate = points[0].date;
-            const lastMeasDate = points[points.length-1].date;
-            // 如果始抽日期在检测日期范围内或之前，则作为起始点加入
-            if (drill.startTime && drill.startTime <= lastMeasDate) {
-                // 避免重复（如果始抽日期恰好等于第一个检测日期，则只保留检测点，不重复）
-                if (drill.startTime !== firstMeasDate) {
-                    points.unshift({
-                        location: drill.location,
-                        drillId: drill.drillId,
-                        date: drill.startTime,
-                        pressure: drill.startPressure,
-                        concentration: drill.startConc,
-                        flow: drill.startFlow,
-                        isStartPoint: true
-                    });
-                }
+            const firstDate = points[0].date;
+            const lastDate = points[points.length-1].date;
+            // 只有当始抽日期不晚于最后检测日期时，才添加始抽点，且不与第一个检测点重复
+            if (drill.startTime && drill.startTime <= lastDate && drill.startTime !== firstDate) {
+                points.unshift({
+                    location: drill.location,
+                    drillId: drill.drillId,
+                    date: drill.startTime,
+                    pressure: drill.startPressure,
+                    concentration: drill.startConc,
+                    flow: drill.startFlow,
+                    isStartPoint: true
+                });
             }
             drillMap.set(key, points);
         }
         return drillMap;
     }
 
-    // 获取所有地点
-    function updateLocations(drillMap) {
-        locations.clear();
+    // 更新地点下拉框（基于所有钻孔，确保下拉框始终有选项）
+    function updateLocationSelect() {
+        const locationsSet = new Set();
         for (let drill of drills) {
-            const key = `${drill.location}|${drill.drillId}`;
-            if (drillMap.has(key)) locations.add(drill.location);
+            locationsSet.add(drill.location);
         }
-        const locArray = Array.from(locations).sort();
+        const locArray = Array.from(locationsSet).sort();
         dom.locationSelect.innerHTML = '';
-        locArray.forEach(loc => {
+        for (let loc of locArray) {
             const opt = document.createElement('option');
-            opt.value = loc; opt.textContent = loc;
+            opt.value = loc;
+            opt.textContent = loc;
             dom.locationSelect.appendChild(opt);
-        });
-        if (locArray.length) updateDrillSelect(locArray[0], drillMap);
-        dom.totalDrillsSpan.innerText = drills.length;
-        dom.totalMeasurementsSpan.innerText = measurements.length;
+        }
+        if (locArray.length) {
+            dom.locationSelect.value = locArray[0];
+        }
     }
 
+    // 更新钻孔下拉框（基于当前地点，只显示有检测数据的钻孔）
     function updateDrillSelect(location, drillMap) {
         const drillsInLoc = [];
         for (let drill of drills) {
-            if (drill.location === location && drillMap.has(`${location}|${drill.drillId}`)) {
-                drillsInLoc.push(drill.drillId);
+            if (drill.location === location) {
+                const key = `${location}|${drill.drillId}`;
+                if (drillMap.has(key)) {
+                    drillsInLoc.push(drill.drillId);
+                }
             }
         }
         drillsInLoc.sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
         dom.drillSelect.innerHTML = '';
-        drillsInLoc.forEach(d => {
+        for (let d of drillsInLoc) {
             const opt = document.createElement('option');
-            opt.value = d; opt.textContent = d;
+            opt.value = d;
+            opt.textContent = d;
             dom.drillSelect.appendChild(opt);
-        });
+        }
         if (drillsInLoc.length) dom.drillSelect.value = drillsInLoc[0];
         dom.drillSelect.disabled = (dom.displayRange.value === 'all');
     }
@@ -355,7 +356,24 @@
         }
     }
 
-    // 核心渲染
+    function renderDrillsTable() {
+        const tbody = dom.drillsTableBody;
+        tbody.innerHTML = '';
+        for (let d of drills) {
+            let row = tbody.insertRow();
+            row.insertCell(0).innerText = d.location;
+            row.insertCell(1).innerText = d.drillId;
+            row.insertCell(2).innerText = d.azimuth;
+            row.insertCell(3).innerText = d.dip;
+            row.insertCell(4).innerText = d.depth;
+            row.insertCell(5).innerText = d.startTime;
+            row.insertCell(6).innerText = d.startConc;
+            row.insertCell(7).innerText = d.startPressure;
+            row.insertCell(8).innerText = d.startFlow;
+        }
+    }
+
+    // 核心渲染函数
     function applyFilter(drillMap) {
         const location = dom.locationSelect.value;
         const mode = dom.displayRange.value;
@@ -388,7 +406,7 @@
             if (concentrationChart) concentrationChart.destroy();
             if (pressureChart) pressureChart.destroy();
             if (flowChart) flowChart.destroy();
-            dom.dataTableBody.innerHTML = '<tr><td colspan="6">无数据</td></tr>';
+            dom.dataTableBody.innerHTML = '<tr><td colspan="6">该地点暂无检测数据</td></tr>';
             dom.avgPressure.innerText = '-'; dom.avgConc.innerText = '-'; dom.avgFlow.innerText = '-';
             dom.maxConcSpan.innerText = '-'; dom.minConcSpan.innerText = '-';
             dom.initialConcBox.style.display = 'none';
@@ -399,19 +417,18 @@
         for (let item of drillDataPoints) {
             item.filteredPoints = item.points.filter(p => p.date >= start && p.date <= end);
         }
-        // 移除无数据钻孔
         drillDataPoints = drillDataPoints.filter(item => item.filteredPoints.length > 0);
         if (drillDataPoints.length === 0) return;
 
-        // 获取所有日期（并集）用于横坐标
-        let allDates = new Set();
+        // 获取所有日期（并集）
+        let allDatesSet = new Set();
         for (let item of drillDataPoints) {
-            item.filteredPoints.forEach(p => allDates.add(p.date));
+            item.filteredPoints.forEach(p => allDatesSet.add(p.date));
         }
-        const sortedDates = Array.from(allDates).sort();
+        const sortedDates = Array.from(allDatesSet).sort();
 
-        // 准备多数据集（浓度、负压、流量）
-        const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#e84393'];
+        // 颜色方案
+        const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#e84393', '#16a085', '#c0392b'];
         const concDatasets = [], pressureDatasets = [], flowDatasets = [];
         let allConcs = [], allPressures = [], allFlows = [];
 
@@ -419,7 +436,6 @@
             const item = drillDataPoints[idx];
             const drillId = item.drillId;
             const color = colors[idx % colors.length];
-            // 构建数据数组，按日期顺序
             const dataMap = new Map(item.filteredPoints.map(p => [p.date, p]));
             const concData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).concentration : null);
             const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
@@ -433,7 +449,6 @@
                 tension: 0.3,
                 borderWidth: 2,
                 pointRadius: 3,
-                pointHoverRadius: 5,
                 fill: false
             });
             pressureDatasets.push({
@@ -456,7 +471,7 @@
                 pointRadius: 3,
                 fill: false
             });
-            // 收集所有值用于统计
+            // 收集所有值
             item.filteredPoints.forEach(p => {
                 allConcs.push(p.concentration);
                 allPressures.push(p.pressure);
@@ -531,23 +546,6 @@
         }
     }
 
-    function renderDrillsTable() {
-        const tbody = dom.drillsTableBody;
-        tbody.innerHTML = '';
-        for (let d of drills) {
-            let row = tbody.insertRow();
-            row.insertCell(0).innerText = d.location;
-            row.insertCell(1).innerText = d.drillId;
-            row.insertCell(2).innerText = d.azimuth;
-            row.insertCell(3).innerText = d.dip;
-            row.insertCell(4).innerText = d.depth;
-            row.insertCell(5).innerText = d.startTime;
-            row.insertCell(6).innerText = d.startConc;
-            row.insertCell(7).innerText = d.startPressure;
-            row.insertCell(8).innerText = d.startFlow;
-        }
-    }
-
     async function init() {
         dom.loadingProgress.style.width = '20%';
         await loadDrills();
@@ -555,7 +553,8 @@
         await loadMeasurements();
         dom.loadingProgress.style.width = '70%';
         const drillMap = buildDrillData();
-        updateLocations(drillMap);
+        updateLocationSelect();           // 基于所有钻孔填充地点下拉框
+        updateDrillSelect(dom.locationSelect.value, drillMap);
         setDefaultDateRange(drillMap);
         renderDrillsTable();
         dom.loadingProgress.style.width = '100%';
