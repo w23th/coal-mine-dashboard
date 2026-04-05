@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>营脚煤矿定向钻孔数据分析</title>
+    <title>营脚煤矿钻孔数据分析系统 | 动态纵坐标</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
     <style>
@@ -45,7 +45,7 @@
 <body class="loading-active">
 <div class="system-loading" id="system-loading">
     <div class="loading-spinner"></div>
-    <h3>营脚煤矿数据分析系统</h3>
+    <h3>营脚煤矿定向钻数据分析</h3>
     <p id="load-status-text">正在加载数据文件...</p>
     <div class="progress-bar"><div class="progress" id="loading-progress"></div></div>
     <div id="load-detail" class="debug-info"></div>
@@ -72,7 +72,7 @@
             <button id="apply-btn" class="btn-apply">应用筛选</button>
         </div>
         <div id="drill-params-panel" style="display: none;" class="drill-params">
-            <i class="fas fa-info-circle"></i> <strong>钻孔参数</strong>
+            <i class="fas fa-info-circle"></i> <strong>钻孔固定参数</strong>
             <span id="param-azimuth">方位角: -</span>
             <span id="param-dip">倾角: -</span>
             <span id="param-depth">孔深: -</span>
@@ -120,7 +120,7 @@
         </div>
     </div>
     <div class="card">
-        <h3>钻孔参数一览</h3>
+        <h3>钻孔固定参数一览</h3>
         <div class="data-table-container"><table><thead><th>抽采地点</th><th>钻孔编号</th><th>方位角(°)</th><th>倾角(°)</th><th>孔深(m)</th><th>始抽时间</th><th>始抽浓度(%)</th><th>始抽负压(KPa)</th><th>始抽流量(m³/min)</th></thead><tbody id="drills-table-body"></tbody></table></div>
     </div>
 </div>
@@ -431,7 +431,19 @@
             return drillDataPoints.filter(item => item.filteredPoints.length > 0);
         }
 
-        // 渲染图表（带 spanGaps 连接缺失点）
+        // 辅助函数：计算一组数值的最小值和最大值（用于纵坐标范围）
+        function getMinMax(values) {
+            let min = Infinity, max = -Infinity;
+            for (let v of values) {
+                if (v !== null && !isNaN(v)) {
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                }
+            }
+            return { min: min === Infinity ? 0 : min, max: max === -Infinity ? 0 : max };
+        }
+
+        // 渲染图表（带动态纵坐标调整）
         function renderCharts(drillDataPoints) {
             if (drillDataPoints.length === 0) {
                 if (concentrationChart) concentrationChart.destroy();
@@ -449,6 +461,7 @@
             const concDatasets = [], pressureDatasets = [], flowDatasets = [];
             let allConcs = [], allPressures = [], allFlows = [];
 
+            // 为每个钻孔构建数据集
             for (let idx in drillDataPoints) {
                 const item = drillDataPoints[idx];
                 const drillId = item.drillId;
@@ -458,9 +471,9 @@
                 const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
                 const flowData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).flow : null);
                 
-                concDatasets.push({ label: `钻孔编号： ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                pressureDatasets.push({ label: `钻孔编号：${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                flowDatasets.push({ label: `钻孔编号： ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                concDatasets.push({ label: `钻孔编号 ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                pressureDatasets.push({ label: `钻孔编号 ${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                flowDatasets.push({ label: `钻孔编号 ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
                 
                 item.filteredPoints.forEach(p => {
                     allConcs.push(p.concentration);
@@ -483,6 +496,7 @@
                 dom.minConcSpan.innerText = minConc + ' %';
             }
 
+            // 单孔模式下显示始抽浓度
             const mode = dom.displayRange.value;
             const selectedDrill = dom.drillSelect.value;
             if (mode === 'single' && drillDataPoints.length === 1) {
@@ -497,26 +511,88 @@
                 dom.initialConcBox.style.display = 'none';
             }
 
-            const titleSuffix = mode === 'single' ? `钻孔编号： ${selectedDrill}` : '全部钻孔';
+            const titleSuffix = mode === 'single' ? `钻孔编号 ${selectedDrill}` : '全部钻孔';
             dom.chartTitle.innerText = `瓦斯浓度变化曲线 - ${titleSuffix}`;
             dom.pressureChartTitle.innerText = `负压变化曲线 - ${titleSuffix}`;
             dom.flowChartTitle.innerText = `混合流量变化曲线 - ${titleSuffix}`;
 
+            // 动态计算纵坐标范围
+            // 瓦斯浓度：单孔时根据该钻孔筛选后的所有浓度值调整；全部时根据所有钻孔的浓度最大值调整（下限为0）
+            let concYmin = 0, concYmax = 100;
+            if (mode === 'single' && drillDataPoints.length === 1) {
+                const concValues = drillDataPoints[0].filteredPoints.map(p => p.concentration);
+                const { min, max } = getMinMax(concValues);
+                concYmin = Math.max(0, min - 5);
+                concYmax = max + 5;
+                if (concYmax - concYmin < 10) concYmax = concYmin + 10; // 保证至少10的跨度
+            } else if (mode === 'all') {
+                const allConcValues = [];
+                for (let item of drillDataPoints) {
+                    allConcValues.push(...item.filteredPoints.map(p => p.concentration));
+                }
+                const { max } = getMinMax(allConcValues);
+                concYmax = max + 5;
+                concYmin = 0;
+                if (concYmax < 5) concYmax = 5;
+            }
+
+            // 负压曲线动态调整（类似浓度，但下限可为0）
+            let pressYmin = 0, pressYmax = 30;
+            const allPressValues = [];
+            for (let item of drillDataPoints) {
+                allPressValues.push(...item.filteredPoints.map(p => p.pressure));
+            }
+            if (allPressValues.length) {
+                const { min, max } = getMinMax(allPressValues);
+                pressYmin = Math.max(0, min - 2);
+                pressYmax = max + 2;
+                if (pressYmax - pressYmin < 4) pressYmax = pressYmin + 4;
+            }
+
+            // 混合流量曲线动态调整
+            let flowYmin = 0, flowYmax = 8;
+            const allFlowValues = [];
+            for (let item of drillDataPoints) {
+                allFlowValues.push(...item.filteredPoints.map(p => p.flow));
+            }
+            if (allFlowValues.length) {
+                const { min, max } = getMinMax(allFlowValues);
+                flowYmin = Math.max(0, min - 0.5);
+                flowYmax = max + 0.5;
+                if (flowYmax - flowYmin < 1) flowYmax = flowYmin + 1;
+            }
+
+            // 销毁旧图表
             if (concentrationChart) concentrationChart.destroy();
             if (pressureChart) pressureChart.destroy();
             if (flowChart) flowChart.destroy();
 
+            // 创建浓度图表
             concentrationChart = new Chart(document.getElementById('concentration-chart'), {
-                type: 'line', data: { labels: sortedDates, datasets: concDatasets },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '浓度 (%)' }, min: 0, max: 100 } } }
+                type: 'line',
+                data: { labels: sortedDates, datasets: concDatasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { title: { display: true, text: '浓度 (%)' }, min: concYmin, max: concYmax } }
+                }
             });
+            // 负压图表
             pressureChart = new Chart(document.getElementById('pressure-chart'), {
-                type: 'line', data: { labels: sortedDates, datasets: pressureDatasets },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '负压 (KPa)' }, beginAtZero: true } } }
+                type: 'line',
+                data: { labels: sortedDates, datasets: pressureDatasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { title: { display: true, text: '负压 (KPa)' }, min: pressYmin, max: pressYmax } }
+                }
             });
+            // 流量图表
             flowChart = new Chart(document.getElementById('flow-chart'), {
-                type: 'line', data: { labels: sortedDates, datasets: flowDatasets },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '流量 (m³/min)' }, beginAtZero: true } } }
+                type: 'line',
+                data: { labels: sortedDates, datasets: flowDatasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { title: { display: true, text: '流量 (m³/min)' }, min: flowYmin, max: flowYmax } }
+                }
             });
         }
 
