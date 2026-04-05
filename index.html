@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>营脚煤矿钻孔数据分析系统 | 动态纵坐标</title>
+    <title>营脚煤矿定向钻孔数据分析</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
     <style>
@@ -72,7 +72,7 @@
             <button id="apply-btn" class="btn-apply">应用筛选</button>
         </div>
         <div id="drill-params-panel" style="display: none;" class="drill-params">
-            <i class="fas fa-info-circle"></i> <strong>钻孔固定参数</strong>
+            <i class="fas fa-info-circle"></i> <strong>钻孔参数</strong>
             <span id="param-azimuth">方位角: -</span>
             <span id="param-dip">倾角: -</span>
             <span id="param-depth">孔深: -</span>
@@ -120,7 +120,7 @@
         </div>
     </div>
     <div class="card">
-        <h3>钻孔固定参数一览</h3>
+        <h3>钻孔参数一览</h3>
         <div class="data-table-container"><table><thead><th>抽采地点</th><th>钻孔编号</th><th>方位角(°)</th><th>倾角(°)</th><th>孔深(m)</th><th>始抽时间</th><th>始抽浓度(%)</th><th>始抽负压(KPa)</th><th>始抽流量(m³/min)</th></thead><tbody id="drills-table-body"></tbody></table></div>
     </div>
 </div>
@@ -471,9 +471,9 @@
                 const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
                 const flowData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).flow : null);
                 
-                concDatasets.push({ label: `钻孔编号 ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                pressureDatasets.push({ label: `钻孔编号 ${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                flowDatasets.push({ label: `钻孔编号 ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                concDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                pressureDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                flowDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
                 
                 item.filteredPoints.forEach(p => {
                     allConcs.push(p.concentration);
@@ -511,7 +511,7 @@
                 dom.initialConcBox.style.display = 'none';
             }
 
-            const titleSuffix = mode === 'single' ? `钻孔编号 ${selectedDrill}` : '全部钻孔';
+            const titleSuffix = mode === 'single' ? `定向钻孔编号 ${selectedDrill}` : '全部钻孔';
             dom.chartTitle.innerText = `瓦斯浓度变化曲线 - ${titleSuffix}`;
             dom.pressureChartTitle.innerText = `负压变化曲线 - ${titleSuffix}`;
             dom.flowChartTitle.innerText = `混合流量变化曲线 - ${titleSuffix}`;
