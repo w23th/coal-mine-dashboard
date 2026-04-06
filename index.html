@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>营脚煤矿定向钻孔数据分析</title>
+    <title>营脚煤矿钻孔数据分析系统 | XLSX 数据源</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body.loading-active { overflow: hidden; height: 100vh; }
         body { background: linear-gradient(135deg, #0c1c29, #1e3c5a); color: #e0e0e0; min-height: 100vh; padding: 20px; }
         .container { max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; gap: 25px; }
         .header, .card { background: rgba(30,45,62,0.85); border-radius: 15px; padding: 25px; backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.1); }
@@ -38,15 +38,16 @@
         .status-indicator { position: fixed; top: 20px; right: 20px; background: rgba(25,40,55,0.9); padding: 8px 15px; border-radius: 20px; font-size: 0.8rem; z-index: 10000; display: flex; align-items: center; gap: 8px; }
         .led { width: 10px; height: 10px; border-radius: 50%; background-color: #f1c40f; }
         .led.ready { background-color: #2ecc71; }
-        .debug-info { font-size: 12px; color: #aaa; margin-top: 10px; text-align: left; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; font-family: monospace; }
         .table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .error-msg { color: #e74c3c; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; margin-top: 10px; }
+        .debug-info { font-size: 12px; color: #aaa; margin-top: 10px; text-align: left; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; font-family: monospace; }
     </style>
 </head>
-<body class="loading-active">
+<body>
 <div class="system-loading" id="system-loading">
     <div class="loading-spinner"></div>
-    <h3>营脚煤矿定向钻数据分析</h3>
-    <p id="load-status-text">正在加载数据文件...</p>
+    <h3>营脚煤矿数据分析系统</h3>
+    <p id="load-status-text">正在加载 data.xlsx ...</p>
     <div class="progress-bar"><div class="progress" id="loading-progress"></div></div>
     <div id="load-detail" class="debug-info"></div>
 </div>
@@ -54,8 +55,8 @@
 
 <div class="container" id="main-container" style="display: none;">
     <div class="header">
-        <h1><i class="fas fa-chart-line"></i> 营脚煤矿定向钻孔数据分析</h1>
-        <p>营脚煤矿通防科</p>
+        <h1><i class="fas fa-chart-line"></i> 营脚煤矿高位钻孔数据分析系统</h1>
+        <p>数据源：data.xlsx (Sheet1:钻孔参数, Sheet2:检测数据) | 动态纵坐标</p>
         <div style="display:flex; justify-content:center; gap:20px; margin-top:12px; flex-wrap:wrap;">
             <div><i class="fas fa-database"></i> 钻孔总数: <span id="total-drills">0</span></div>
             <div><i class="fas fa-chart-simple"></i> 检测记录数: <span id="total-measurements">0</span></div>
@@ -72,7 +73,7 @@
             <button id="apply-btn" class="btn-apply">应用筛选</button>
         </div>
         <div id="drill-params-panel" style="display: none;" class="drill-params">
-            <i class="fas fa-info-circle"></i> <strong>钻孔参数</strong>
+            <i class="fas fa-info-circle"></i> <strong>钻孔固定参数</strong>
             <span id="param-azimuth">方位角: -</span>
             <span id="param-dip">倾角: -</span>
             <span id="param-depth">孔深: -</span>
@@ -114,125 +115,134 @@
         </div>
         <div class="data-table-container">
             <table class="data-table">
-                <thead><th>抽采地点</th><th>钻孔编号</th><th>检测日期</th><th>负压(KPa)</th><th>瓦斯浓度(%)</th><th>混合流量(m³/min)</th></thead>
+                <thead>汽<th>抽采地点</th><th>钻孔编号</th><th>检测日期</th><th>负压(KPa)</th><th>瓦斯浓度(%)</th><th>混合流量(m³/min)</th></thead>
                 <tbody id="data-table-body"></tbody>
             </table>
         </div>
     </div>
     <div class="card">
-        <h3>钻孔参数一览</h3>
-        <div class="data-table-container"><table><thead><th>抽采地点</th><th>钻孔编号</th><th>方位角(°)</th><th>倾角(°)</th><th>孔深(m)</th><th>始抽时间</th><th>始抽浓度(%)</th><th>始抽负压(KPa)</th><th>始抽流量(m³/min)</th></thead><tbody id="drills-table-body"></tbody></table></div>
+        <h3>钻孔固定参数一览</h3>
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>汽<th>抽采地点</th><th>钻孔编号</th><th>方位角(°)</th><th>倾角(°)</th><th>孔深(m)</th><th>始抽时间</th><th>始抽浓度(%)</th><th>始抽负压(KPa)</th><th>始抽流量(m³/min)</th></thead>
+                <tbody id="drills-table-body"></tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <script>
     (function(){
-        // DOM 元素
+        // 安全获取 DOM 元素，并给出警告
+        function getElement(id) {
+            const el = document.getElementById(id);
+            if (!el) console.warn(`DOM 元素 #${id} 未找到`);
+            return el;
+        }
+
         const dom = {
-            loadStatusText: document.getElementById('load-status-text'),
-            loadDetail: document.getElementById('load-detail'),
-            loadingProgress: document.getElementById('loading-progress'),
-            loadingDiv: document.getElementById('system-loading'),
-            mainContainer: document.getElementById('main-container'),
-            statusLed: document.getElementById('status-led'),
-            statusText: document.getElementById('status-text'),
-            locationSelect: document.getElementById('location-select'),
-            displayRange: document.getElementById('display-range'),
-            drillSelect: document.getElementById('drill-select'),
-            startDate: document.getElementById('start-date'),
-            endDate: document.getElementById('end-date'),
-            applyBtn: document.getElementById('apply-btn'),
-            showRecentBtn: document.getElementById('show-recent-btn'),
-            showHistoryBtn: document.getElementById('show-history-btn'),
-            totalDrillsSpan: document.getElementById('total-drills'),
-            totalMeasurementsSpan: document.getElementById('total-measurements'),
-            dataRangeSpan: document.getElementById('data-range'),
-            avgPressure: document.getElementById('avg-pressure'),
-            avgConc: document.getElementById('avg-concentration'),
-            avgFlow: document.getElementById('avg-flow'),
-            initialConcSpan: document.getElementById('initial-concentration'),
-            maxConcSpan: document.getElementById('max-concentration'),
-            minConcSpan: document.getElementById('min-concentration'),
-            chartTitle: document.getElementById('chart-title'),
-            pressureChartTitle: document.getElementById('pressure-chart-title'),
-            flowChartTitle: document.getElementById('flow-chart-title'),
-            dataTableBody: document.getElementById('data-table-body'),
-            drillsTableBody: document.getElementById('drills-table-body'),
-            drillParamsPanel: document.getElementById('drill-params-panel'),
-            paramAzimuth: document.getElementById('param-azimuth'),
-            paramDip: document.getElementById('param-dip'),
-            paramDepth: document.getElementById('param-depth'),
-            paramStartTime: document.getElementById('param-start-time'),
-            paramStartConc: document.getElementById('param-start-conc'),
-            paramStartPressure: document.getElementById('param-start-pressure'),
-            paramStartFlow: document.getElementById('param-start-flow'),
-            initialConcBox: document.getElementById('initial-conc-box')
+            loadStatusText: getElement('load-status-text'),
+            loadDetail: getElement('load-detail'),
+            loadingProgress: getElement('loading-progress'),
+            loadingDiv: getElement('system-loading'),
+            mainContainer: getElement('main-container'),
+            statusLed: getElement('status-led'),
+            statusText: getElement('status-text'),
+            locationSelect: getElement('location-select'),
+            displayRange: getElement('display-range'),
+            drillSelect: getElement('drill-select'),
+            startDate: getElement('start-date'),
+            endDate: getElement('end-date'),
+            applyBtn: getElement('apply-btn'),
+            showRecentBtn: getElement('show-recent-btn'),
+            showHistoryBtn: getElement('show-history-btn'),
+            totalDrillsSpan: getElement('total-drills'),
+            totalMeasurementsSpan: getElement('total-measurements'),
+            dataRangeSpan: getElement('data-range'),
+            avgPressure: getElement('avg-pressure'),
+            avgConc: getElement('avg-concentration'),
+            avgFlow: getElement('avg-flow'),
+            initialConcSpan: getElement('initial-concentration'),
+            maxConcSpan: getElement('max-concentration'),
+            minConcSpan: getElement('min-concentration'),
+            chartTitle: getElement('chart-title'),
+            pressureChartTitle: getElement('pressure-chart-title'),
+            flowChartTitle: getElement('flow-chart-title'),
+            dataTableBody: getElement('data-table-body'),
+            drillsTableBody: getElement('drills-table-body'),
+            drillParamsPanel: getElement('drill-params-panel'),
+            paramAzimuth: getElement('param-azimuth'),
+            paramDip: getElement('param-dip'),
+            paramDepth: getElement('param-depth'),
+            paramStartTime: getElement('param-start-time'),
+            paramStartConc: getElement('param-start-conc'),
+            paramStartPressure: getElement('param-start-pressure'),
+            paramStartFlow: getElement('param-start-flow'),
+            initialConcBox: getElement('initial-conc-box')
         };
 
-        // 全局数据
         let drills = [];
         let measurements = [];
-        let drillMap = new Map();  // key: "地点|钻孔编号" -> 数据点数组
+        let drillMap = new Map();
         let concentrationChart, pressureChart, flowChart;
-        let currentShowHistory = false;  // false: 只显示最近一次; true: 显示全部
+        let currentShowHistory = false;
 
-        // 日志
         function log(msg, isError = false) {
             const div = document.createElement('div');
             div.textContent = msg;
             if (isError) div.style.color = '#e74c3c';
-            dom.loadDetail.appendChild(div);
-            dom.loadDetail.scrollTop = dom.loadDetail.scrollHeight;
+            if (dom.loadDetail) dom.loadDetail.appendChild(div);
+            if (dom.loadDetail) dom.loadDetail.scrollTop = dom.loadDetail.scrollHeight;
             console.log(msg);
         }
 
-        // 日期标准化
         function normalizeDate(dateStr) {
             if (!dateStr) return '';
-            let str = dateStr.trim();
+            let str = String(dateStr).trim();
             if (str.includes('/')) {
                 let parts = str.split('/');
                 if (parts.length === 3) return `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`;
             }
+            if (!isNaN(str) && str.length > 4 && !str.includes('-')) {
+                let num = parseFloat(str);
+                if (num > 40000 && num < 50000) {
+                    let date = new Date((num - 25569) * 86400000);
+                    if (!isNaN(date.getTime())) {
+                        return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+                    }
+                }
+            }
             return str;
         }
 
-        // CSV解析
-        function parseCSV(text, requiredCols) {
-            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-            const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-            if (lines.length < 2) return [];
-            const headers = lines[0].split(',').map(h => h.trim());
-            const result = [];
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(',').map(v => v.trim());
-                if (values.length < headers.length) continue;
-                if (values.every(v => v === '')) continue;
-                const row = {};
-                headers.forEach((h, idx) => { row[h] = values[idx] === '' ? null : values[idx]; });
-                let hasRequired = requiredCols.some(col => row[col] && row[col] !== '');
-                if (hasRequired) result.push(row);
-            }
-            return result;
-        }
-
-        async function loadDrills() {
+        async function loadXLSX() {
             try {
-                log('正在加载 drills.csv ...');
-                const resp = await fetch('drills.csv?t=' + Date.now());
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const text = await resp.text();
-                log(`drills.csv 大小: ${text.length} 字节`);
-                const raw = parseCSV(text, ['抽采地点', '钻孔编号']);
+                log('正在加载 data.xlsx ...');
+                const response = await fetch('data.xlsx?t=' + Date.now());
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                log(`成功读取 XLSX，工作表: ${workbook.SheetNames.join(', ')}`);
+                
+                let drillSheet = workbook.Sheets[workbook.SheetNames[0]];
+                if (workbook.SheetNames.includes('drills')) drillSheet = workbook.Sheets['drills'];
+                const drillRows = XLSX.utils.sheet_to_json(drillSheet, { defval: "" });
+                log(`钻孔参数表解析到 ${drillRows.length} 行`);
+                
+                let measSheet = workbook.Sheets[workbook.SheetNames[1]];
+                if (workbook.SheetNames.includes('measurements')) measSheet = workbook.Sheets['measurements'];
+                const measRows = XLSX.utils.sheet_to_json(measSheet, { defval: "" });
+                log(`检测数据表解析到 ${measRows.length} 行`);
+                
                 drills = [];
-                for (let row of raw) {
+                for (let row of drillRows) {
                     const location = row['抽采地点'];
                     const drillId = row['钻孔编号'];
-                    if (!location || !drillId) continue;
                     const startTimeRaw = row['始抽时间'];
-                    if (!startTimeRaw) continue;
+                    if (!location || !drillId || !startTimeRaw) continue;
                     drills.push({
-                        location, drillId: String(drillId),
+                        location: String(location),
+                        drillId: String(drillId),
                         azimuth: parseFloat(row['方位角']) || 0,
                         dip: parseFloat(row['倾角']) || 0,
                         depth: parseFloat(row['孔深']) || 0,
@@ -243,46 +253,34 @@
                     });
                 }
                 log(`✅ 加载 ${drills.length} 个钻孔`);
-                return true;
-            } catch (err) {
-                log(`❌ drills.csv 加载失败: ${err.message}`, true);
-                return false;
-            }
-        }
-
-        async function loadMeasurements() {
-            try {
-                log('正在加载 measurements.csv ...');
-                const resp = await fetch('measurements.csv?t=' + Date.now());
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const text = await resp.text();
-                log(`measurements.csv 大小: ${text.length} 字节`);
-                const raw = parseCSV(text, ['抽采地点', '钻孔编号', '检测日期']);
+                
                 measurements = [];
-                for (let row of raw) {
+                for (let row of measRows) {
                     const location = row['抽采地点'];
                     const drillId = row['钻孔编号'];
                     const dateRaw = row['检测日期'];
                     if (!location || !drillId || !dateRaw) continue;
                     const pressure = parseFloat(row['负压']);
-                    const conc = parseFloat(row['瓦斯浓度']);
+                    const concentration = parseFloat(row['瓦斯浓度']);
                     const flow = parseFloat(row['混合流量']);
-                    if (isNaN(pressure) || isNaN(conc) || isNaN(flow)) continue;
+                    if (isNaN(pressure) || isNaN(concentration) || isNaN(flow)) continue;
                     measurements.push({
-                        location, drillId: String(drillId),
+                        location: String(location),
+                        drillId: String(drillId),
                         date: normalizeDate(dateRaw),
-                        pressure, concentration: conc, flow
+                        pressure: pressure,
+                        concentration: concentration,
+                        flow: flow
                     });
                 }
                 log(`✅ 加载 ${measurements.length} 条检测记录`);
-                return measurements.length > 0;
+                return true;
             } catch (err) {
-                log(`❌ measurements.csv 加载失败: ${err.message}`, true);
+                log(`❌ 加载 data.xlsx 失败: ${err.message}`, true);
                 return false;
             }
         }
 
-        // 构建 drillMap（每个钻孔的数据点，含始抽点）
         function buildDrillMap() {
             const map = new Map();
             for (let m of measurements) {
@@ -309,8 +307,8 @@
             return map;
         }
 
-        // 更新地点下拉框
         function updateLocationSelect() {
+            if (!dom.locationSelect) return;
             const locs = [...new Set(drills.map(d => d.location))].sort();
             dom.locationSelect.innerHTML = '';
             locs.forEach(loc => {
@@ -321,8 +319,8 @@
             if (locs.length) dom.locationSelect.value = locs[0];
         }
 
-        // 更新钻孔下拉框（基于 drillMap 中存在的钻孔）
         function updateDrillSelect(location) {
+            if (!dom.drillSelect) return;
             const drillIds = [];
             for (let drill of drills) {
                 if (drill.location === location) {
@@ -347,6 +345,7 @@
         }
 
         function setDefaultDateRange() {
+            if (!dom.startDate || !dom.endDate || !dom.dataRangeSpan) return;
             let allDates = [];
             for (let points of drillMap.values()) {
                 allDates.push(...points.map(p => p.date));
@@ -363,6 +362,7 @@
         }
 
         function renderDrillsTable() {
+            if (!dom.drillsTableBody) return;
             const tbody = dom.drillsTableBody;
             tbody.innerHTML = '';
             for (let d of drills) {
@@ -377,33 +377,33 @@
                 row.insertCell(7).innerText = d.startPressure;
                 row.insertCell(8).innerText = d.startFlow;
             }
-            dom.totalDrillsSpan.innerText = drills.length;
-            dom.totalMeasurementsSpan.innerText = measurements.length;
+            if (dom.totalDrillsSpan) dom.totalDrillsSpan.innerText = drills.length;
+            if (dom.totalMeasurementsSpan) dom.totalMeasurementsSpan.innerText = measurements.length;
         }
 
         function showDrillParams(location, drillId) {
+            if (!dom.drillParamsPanel) return;
             const drill = drills.find(d => d.location === location && d.drillId === drillId);
             if (drill) {
                 dom.drillParamsPanel.style.display = 'flex';
-                dom.paramAzimuth.innerHTML = `方位角: ${drill.azimuth}°`;
-                dom.paramDip.innerHTML = `倾角: ${drill.dip}°`;
-                dom.paramDepth.innerHTML = `孔深: ${drill.depth}m`;
-                dom.paramStartTime.innerHTML = `始抽时间: ${drill.startTime}`;
-                dom.paramStartConc.innerHTML = `始抽浓度: ${drill.startConc}%`;
-                dom.paramStartPressure.innerHTML = `始抽负压: ${drill.startPressure}KPa`;
-                dom.paramStartFlow.innerHTML = `始抽流量: ${drill.startFlow}m³/min`;
+                if (dom.paramAzimuth) dom.paramAzimuth.innerHTML = `方位角: ${drill.azimuth}°`;
+                if (dom.paramDip) dom.paramDip.innerHTML = `倾角: ${drill.dip}°`;
+                if (dom.paramDepth) dom.paramDepth.innerHTML = `孔深: ${drill.depth}m`;
+                if (dom.paramStartTime) dom.paramStartTime.innerHTML = `始抽时间: ${drill.startTime}`;
+                if (dom.paramStartConc) dom.paramStartConc.innerHTML = `始抽浓度: ${drill.startConc}%`;
+                if (dom.paramStartPressure) dom.paramStartPressure.innerHTML = `始抽负压: ${drill.startPressure}KPa`;
+                if (dom.paramStartFlow) dom.paramStartFlow.innerHTML = `始抽流量: ${drill.startFlow}m³/min`;
             } else {
                 dom.drillParamsPanel.style.display = 'none';
             }
         }
 
-        // 获取当前筛选后的数据点（用于图表）
         function getFilteredPoints() {
-            const location = dom.locationSelect.value;
-            const mode = dom.displayRange.value;
-            const selectedDrill = dom.drillSelect.value;
-            let start = dom.startDate.value;
-            let end = dom.endDate.value;
+            const location = dom.locationSelect ? dom.locationSelect.value : '';
+            const mode = dom.displayRange ? dom.displayRange.value : 'all';
+            const selectedDrill = dom.drillSelect ? dom.drillSelect.value : '';
+            let start = dom.startDate ? dom.startDate.value : '';
+            let end = dom.endDate ? dom.endDate.value : '';
             if (!start || !end || !location) return [];
 
             let drillDataPoints = [];
@@ -422,16 +422,14 @@
                         }
                     }
                 }
-                dom.drillParamsPanel.style.display = 'none';
+                if (dom.drillParamsPanel) dom.drillParamsPanel.style.display = 'none';
             }
-
             for (let item of drillDataPoints) {
                 item.filteredPoints = item.points.filter(p => p.date >= start && p.date <= end);
             }
             return drillDataPoints.filter(item => item.filteredPoints.length > 0);
         }
 
-        // 辅助函数：计算一组数值的最小值和最大值（用于纵坐标范围）
         function getMinMax(values) {
             let min = Infinity, max = -Infinity;
             for (let v of values) {
@@ -443,7 +441,6 @@
             return { min: min === Infinity ? 0 : min, max: max === -Infinity ? 0 : max };
         }
 
-        // 渲染图表（带动态纵坐标调整）
         function renderCharts(drillDataPoints) {
             if (drillDataPoints.length === 0) {
                 if (concentrationChart) concentrationChart.destroy();
@@ -451,7 +448,6 @@
                 if (flowChart) flowChart.destroy();
                 return;
             }
-            // 收集所有日期
             let allDatesSet = new Set();
             for (let item of drillDataPoints) {
                 item.filteredPoints.forEach(p => allDatesSet.add(p.date));
@@ -461,7 +457,6 @@
             const concDatasets = [], pressureDatasets = [], flowDatasets = [];
             let allConcs = [], allPressures = [], allFlows = [];
 
-            // 为每个钻孔构建数据集
             for (let idx in drillDataPoints) {
                 const item = drillDataPoints[idx];
                 const drillId = item.drillId;
@@ -470,11 +465,9 @@
                 const concData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).concentration : null);
                 const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
                 const flowData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).flow : null);
-                
-                concDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                pressureDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                flowDatasets.push({ label: `定向钻孔编号 ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
-                
+                concDatasets.push({ label: `钻孔 ${drillId}`, data: concData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                pressureDatasets.push({ label: `钻孔 ${drillId}`, data: pressureData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
+                flowDatasets.push({ label: `钻孔 ${drillId}`, data: flowData, borderColor: color, backgroundColor: 'transparent', tension: 0.3, borderWidth: 2, pointRadius: 3, fill: false, spanGaps: true });
                 item.filteredPoints.forEach(p => {
                     allConcs.push(p.concentration);
                     allPressures.push(p.pressure);
@@ -482,49 +475,45 @@
                 });
             }
 
-            // 统计指标
             if (allConcs.length) {
                 const avgConc = (allConcs.reduce((a,b)=>a+b,0)/allConcs.length).toFixed(1);
                 const avgPress = (allPressures.reduce((a,b)=>a+b,0)/allPressures.length).toFixed(2);
                 const avgFlow = (allFlows.reduce((a,b)=>a+b,0)/allFlows.length).toFixed(3);
                 const maxConc = Math.max(...allConcs).toFixed(1);
                 const minConc = Math.min(...allConcs).toFixed(1);
-                dom.avgConc.innerText = avgConc + ' %';
-                dom.avgPressure.innerText = avgPress + ' KPa';
-                dom.avgFlow.innerText = avgFlow + ' m³/min';
-                dom.maxConcSpan.innerText = maxConc + ' %';
-                dom.minConcSpan.innerText = minConc + ' %';
+                if (dom.avgConc) dom.avgConc.innerText = avgConc + ' %';
+                if (dom.avgPressure) dom.avgPressure.innerText = avgPress + ' KPa';
+                if (dom.avgFlow) dom.avgFlow.innerText = avgFlow + ' m³/min';
+                if (dom.maxConcSpan) dom.maxConcSpan.innerText = maxConc + ' %';
+                if (dom.minConcSpan) dom.minConcSpan.innerText = minConc + ' %';
             }
 
-            // 单孔模式下显示始抽浓度
-            const mode = dom.displayRange.value;
-            const selectedDrill = dom.drillSelect.value;
-            if (mode === 'single' && drillDataPoints.length === 1) {
-                const drillFixed = drills.find(d => d.location === dom.locationSelect.value && d.drillId === selectedDrill);
+            const mode = dom.displayRange ? dom.displayRange.value : 'all';
+            const selectedDrill = dom.drillSelect ? dom.drillSelect.value : '';
+            if (mode === 'single' && drillDataPoints.length === 1 && dom.initialConcSpan && dom.initialConcBox) {
+                const drillFixed = drills.find(d => d.location === (dom.locationSelect ? dom.locationSelect.value : '') && d.drillId === selectedDrill);
                 if (drillFixed && drillFixed.startConc) {
                     dom.initialConcSpan.innerText = drillFixed.startConc + ' %';
                     dom.initialConcBox.style.display = 'block';
                 } else {
                     dom.initialConcBox.style.display = 'none';
                 }
-            } else {
+            } else if (dom.initialConcBox) {
                 dom.initialConcBox.style.display = 'none';
             }
 
-            const titleSuffix = mode === 'single' ? `定向钻孔编号 ${selectedDrill}` : '全部钻孔';
-            dom.chartTitle.innerText = `瓦斯浓度变化曲线 - ${titleSuffix}`;
-            dom.pressureChartTitle.innerText = `负压变化曲线 - ${titleSuffix}`;
-            dom.flowChartTitle.innerText = `混合流量变化曲线 - ${titleSuffix}`;
+            const titleSuffix = mode === 'single' ? `钻孔 ${selectedDrill}` : '全部钻孔';
+            if (dom.chartTitle) dom.chartTitle.innerText = `瓦斯浓度变化曲线 - ${titleSuffix}`;
+            if (dom.pressureChartTitle) dom.pressureChartTitle.innerText = `负压变化曲线 - ${titleSuffix}`;
+            if (dom.flowChartTitle) dom.flowChartTitle.innerText = `混合流量变化曲线 - ${titleSuffix}`;
 
-            // 动态计算纵坐标范围
-            // 瓦斯浓度：单孔时根据该钻孔筛选后的所有浓度值调整；全部时根据所有钻孔的浓度最大值调整（下限为0）
             let concYmin = 0, concYmax = 100;
             if (mode === 'single' && drillDataPoints.length === 1) {
                 const concValues = drillDataPoints[0].filteredPoints.map(p => p.concentration);
                 const { min, max } = getMinMax(concValues);
                 concYmin = Math.max(0, min - 5);
                 concYmax = max + 5;
-                if (concYmax - concYmin < 10) concYmax = concYmin + 10; // 保证至少10的跨度
+                if (concYmax - concYmin < 10) concYmax = concYmin + 10;
             } else if (mode === 'all') {
                 const allConcValues = [];
                 for (let item of drillDataPoints) {
@@ -536,12 +525,11 @@
                 if (concYmax < 5) concYmax = 5;
             }
 
-            // 负压曲线动态调整（类似浓度，但下限可为0）
-            let pressYmin = 0, pressYmax = 30;
             const allPressValues = [];
             for (let item of drillDataPoints) {
                 allPressValues.push(...item.filteredPoints.map(p => p.pressure));
             }
+            let pressYmin = 0, pressYmax = 30;
             if (allPressValues.length) {
                 const { min, max } = getMinMax(allPressValues);
                 pressYmin = Math.max(0, min - 2);
@@ -549,12 +537,11 @@
                 if (pressYmax - pressYmin < 4) pressYmax = pressYmin + 4;
             }
 
-            // 混合流量曲线动态调整
-            let flowYmin = 0, flowYmax = 8;
             const allFlowValues = [];
             for (let item of drillDataPoints) {
                 allFlowValues.push(...item.filteredPoints.map(p => p.flow));
             }
+            let flowYmin = 0, flowYmax = 8;
             if (allFlowValues.length) {
                 const { min, max } = getMinMax(allFlowValues);
                 flowYmin = Math.max(0, min - 0.5);
@@ -562,42 +549,35 @@
                 if (flowYmax - flowYmin < 1) flowYmax = flowYmin + 1;
             }
 
-            // 销毁旧图表
             if (concentrationChart) concentrationChart.destroy();
             if (pressureChart) pressureChart.destroy();
             if (flowChart) flowChart.destroy();
 
-            // 创建浓度图表
-            concentrationChart = new Chart(document.getElementById('concentration-chart'), {
-                type: 'line',
-                data: { labels: sortedDates, datasets: concDatasets },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    scales: { y: { title: { display: true, text: '浓度 (%)' }, min: concYmin, max: concYmax } }
-                }
-            });
-            // 负压图表
-            pressureChart = new Chart(document.getElementById('pressure-chart'), {
-                type: 'line',
-                data: { labels: sortedDates, datasets: pressureDatasets },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    scales: { y: { title: { display: true, text: '负压 (KPa)' }, min: pressYmin, max: pressYmax } }
-                }
-            });
-            // 流量图表
-            flowChart = new Chart(document.getElementById('flow-chart'), {
-                type: 'line',
-                data: { labels: sortedDates, datasets: flowDatasets },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    scales: { y: { title: { display: true, text: '流量 (m³/min)' }, min: flowYmin, max: flowYmax } }
-                }
-            });
+            const concCtx = document.getElementById('concentration-chart');
+            const pressCtx = document.getElementById('pressure-chart');
+            const flowCtx = document.getElementById('flow-chart');
+            if (concCtx) {
+                concentrationChart = new Chart(concCtx, {
+                    type: 'line', data: { labels: sortedDates, datasets: concDatasets },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '浓度 (%)' }, min: concYmin, max: concYmax } } }
+                });
+            }
+            if (pressCtx) {
+                pressureChart = new Chart(pressCtx, {
+                    type: 'line', data: { labels: sortedDates, datasets: pressureDatasets },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '负压 (KPa)' }, min: pressYmin, max: pressYmax } } }
+                });
+            }
+            if (flowCtx) {
+                flowChart = new Chart(flowCtx, {
+                    type: 'line', data: { labels: sortedDates, datasets: flowDatasets },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { title: { display: true, text: '流量 (m³/min)' }, min: flowYmin, max: flowYmax } } }
+                });
+            }
         }
 
-        // 渲染数据明细表格（根据 currentShowHistory 决定显示最近一次还是全部）
         function renderDataTable(drillDataPoints) {
+            if (!dom.dataTableBody) return;
             if (drillDataPoints.length === 0) {
                 dom.dataTableBody.innerHTML = '<tr><td colspan="6">无数据</td></tr>';
                 return;
@@ -607,7 +587,6 @@
                 allPoints.push(...item.filteredPoints);
             }
             if (!currentShowHistory) {
-                // 只显示每个钻孔最近一次检测
                 const latestMap = new Map();
                 for (let p of allPoints) {
                     const key = `${p.location}|${p.drillId}`;
@@ -632,82 +611,91 @@
             }
         }
 
-        // 全局刷新（图表 + 表格）
         function refreshAll() {
             const drillDataPoints = getFilteredPoints();
             renderCharts(drillDataPoints);
             renderDataTable(drillDataPoints);
         }
 
-        // 事件绑定
         function bindEvents() {
             const refresh = () => refreshAll();
-            dom.locationSelect.addEventListener('change', () => {
+            if (dom.locationSelect) dom.locationSelect.addEventListener('change', () => {
                 updateDrillSelect(dom.locationSelect.value);
                 refresh();
             });
-            dom.displayRange.addEventListener('change', () => {
+            if (dom.displayRange) dom.displayRange.addEventListener('change', () => {
                 const isAll = dom.displayRange.value === 'all';
-                dom.drillSelect.disabled = isAll;
+                if (dom.drillSelect) dom.drillSelect.disabled = isAll;
                 refresh();
             });
-            dom.drillSelect.addEventListener('change', refresh);
-            dom.applyBtn.addEventListener('click', refresh);
-            dom.showRecentBtn.addEventListener('click', () => {
+            if (dom.drillSelect) dom.drillSelect.addEventListener('change', refresh);
+            if (dom.applyBtn) dom.applyBtn.addEventListener('click', refresh);
+            if (dom.showRecentBtn) dom.showRecentBtn.addEventListener('click', () => {
                 currentShowHistory = false;
                 refreshAll();
             });
-            dom.showHistoryBtn.addEventListener('click', () => {
+            if (dom.showHistoryBtn) dom.showHistoryBtn.addEventListener('click', () => {
                 currentShowHistory = true;
                 refreshAll();
             });
         }
 
-        // 初始化
         async function init() {
-            dom.loadingProgress.style.width = '20%';
-            await loadDrills();
-            dom.loadingProgress.style.width = '50%';
-            const measOk = await loadMeasurements();
-            if (!measOk || measurements.length === 0) {
-                log('⚠️ 未加载到真实检测数据，将使用模拟数据', true);
-                // 生成模拟数据（基于 drills）
-                for (let drill of drills) {
-                    let startDate = new Date(drill.startTime);
-                    for (let i = 0; i < 10; i++) {
-                        let date = new Date(startDate);
-                        date.setDate(startDate.getDate() + i * 5);
-                        let dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-                        measurements.push({
-                            location: drill.location, drillId: drill.drillId, date: dateStr,
-                            pressure: +(drill.startPressure * (0.9 + Math.random()*0.2)).toFixed(2),
-                            concentration: +(drill.startConc * Math.max(0.3, 1 - i*0.03)).toFixed(1),
-                            flow: +(drill.startFlow * (0.7 + Math.random()*0.4)).toFixed(3)
-                        });
-                    }
+            try {
+                if (dom.loadingProgress) dom.loadingProgress.style.width = '20%';
+                const ok = await loadXLSX();
+                if (dom.loadingProgress) dom.loadingProgress.style.width = '50%';
+                if (!ok || drills.length === 0 || measurements.length === 0) {
+                    log('❌ 数据加载失败或数据为空，请检查 data.xlsx 文件格式', true);
+                    if (dom.loadStatusText) dom.loadStatusText.innerText = '数据加载失败';
+                    setTimeout(() => {
+                        if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                        document.body.classList.remove('loading-active');
+                        if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                        if (dom.statusText) dom.statusText.innerText = '数据加载失败';
+                    }, 2000);
+                    return;
                 }
-                log(`生成了 ${measurements.length} 条模拟检测数据`);
+                if (dom.loadingProgress) dom.loadingProgress.style.width = '70%';
+                drillMap = buildDrillMap();
+                updateLocationSelect();
+                updateDrillSelect(dom.locationSelect ? dom.locationSelect.value : '');
+                setDefaultDateRange();
+                renderDrillsTable();
+                bindEvents();
+                refreshAll();
+                if (dom.loadingProgress) dom.loadingProgress.style.width = '100%';
+                if (dom.loadStatusText) dom.loadStatusText.innerText = '数据加载完成';
+                setTimeout(() => {
+                    if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                    document.body.classList.remove('loading-active');
+                    if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                    if (dom.statusLed) dom.statusLed.classList.add('ready');
+                    if (dom.statusText) dom.statusText.innerText = '系统就绪';
+                }, 500);
+            } catch (err) {
+                log(`初始化过程出错: ${err.message}`, true);
+                console.error(err);
+                if (dom.loadStatusText) dom.loadStatusText.innerText = '初始化失败';
+                setTimeout(() => {
+                    if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                    document.body.classList.remove('loading-active');
+                    if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                    if (dom.statusText) dom.statusText.innerText = '系统错误';
+                }, 2000);
             }
-            dom.loadingProgress.style.width = '70%';
-            drillMap = buildDrillMap();
-            updateLocationSelect();
-            updateDrillSelect(dom.locationSelect.value);
-            setDefaultDateRange();
-            renderDrillsTable();
-            bindEvents();
-            refreshAll();
-            dom.loadingProgress.style.width = '100%';
-            dom.loadStatusText.innerText = '初始化完成';
-            setTimeout(() => {
-                dom.loadingDiv.classList.add('hidden');
-                document.body.classList.remove('loading-active');
-                dom.mainContainer.style.display = 'block';
-                dom.statusLed.classList.add('ready');
-                dom.statusText.innerText = '系统就绪';
-            }, 500);
         }
 
-        init();
+        if (typeof Chart === 'undefined') {
+            log('❌ Chart.js 未加载，请检查网络连接', true);
+            if (dom.loadStatusText) dom.loadStatusText.innerText = 'Chart.js 加载失败';
+            setTimeout(() => {
+                if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+            }, 2000);
+        } else {
+            init();
+        }
     })();
 </script>
 </body>
