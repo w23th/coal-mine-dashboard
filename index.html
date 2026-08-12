@@ -393,7 +393,7 @@
 
         <div class="analysis-log">
             <h3><i class="fas fa-chart-line"></i> 钻孔浓度与流量变化分析
-                <span class="tag-new">新增：绝对值变化 + 波动诊断</span>
+                <span class="tag-new">智能过滤：浓度变化＜10个百分点自动跳过</span>
             </h3>
             <pre id="analysis-content">正在分析中，请稍候...</pre>
         </div>
@@ -718,7 +718,7 @@
             }
 
             // ============================================================
-            //  ★★★ 核心分析函数 - 新增绝对值变化展示 ★★★
+            //  ★★★ 核心分析函数 - 增加智能过滤 ★★★
             // ============================================================
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
@@ -734,17 +734,19 @@
                 const threeMonthsAgo = new Date(now);
                 threeMonthsAgo.setMonth(now.getMonth() - 3);
 
-                const THRESHOLD = 15; // 浓度波动阈值 ±15%
+                const THRESHOLD = 15; // 浓度波动阈值 ±15% (用于波动预警)
+                const SKIP_THRESHOLD = 10; // 浓度变化绝对值小于10个百分点时跳过详细分析
                 let output = '';
                 output += `📊 分析基准：${todayStr}（自动匹配实际最新检测日）\n`;
                 output += `📍 抽采地点：${location}\n`;
                 output += `🔍 显示模式：${mode === 'single' ? `单孔 ${selectedDrill}` : '全部钻孔'}\n`;
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-                output += `📌 【新增】前日对比 · 近三日平均对比 · 波动(负压)分析\n`;
-                output += `   ⚠️ 波动阈值：浓度变化 ±${THRESHOLD}%\n`;
+                output += `📌 【智能过滤】浓度变化小于 ${SKIP_THRESHOLD} 个百分点（近三日平均对比）的钻孔将自动跳过详细分析\n`;
+                output += `   ⚠️ 波动预警阈值：浓度变化 ±${THRESHOLD}%\n`;
                 output += `   📈 变化显示：绝对值 (变化量) 与 百分比 同时展示\n`;
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
+                let analyzedCount = 0;
                 // 遍历每个钻孔
                 for (let item of drillDataPoints) {
                     const drillId = item.drillId;
@@ -758,13 +760,13 @@
                     const latestFlow = latest.flow;
                     const latestPressure = latest.pressure;
 
-                    // ---- 1. 前一日（最近的前一个检测日） ----
+                    // ---- 前一日 ----
                     let prevDay = null;
                     if (sorted.length >= 2) {
                         prevDay = sorted[sorted.length - 2];
                     }
 
-                    // ---- 2. 近三日（最近三个检测日，不含最新） ----
+                    // ---- 近三日（最近三个检测日，不含最新） ----
                     let recentDays = [];
                     if (sorted.length >= 4) {
                         recentDays = sorted.slice(-4, -1);
@@ -781,7 +783,28 @@
                         avgPressure = recentDays.reduce((s, p) => s + p.pressure, 0) / recentDays.length;
                     }
 
-                    // ---- 计算变化（百分比和绝对值） ----
+                    // 计算与近三日平均的浓度差值（绝对值）
+                    let concDiffVsAvg = null;
+                    if (recentDays.length > 0) {
+                        concDiffVsAvg = latestConc - avgConc;
+                    }
+
+                    // ---- 智能过滤：如果浓度变化绝对值小于阈值，跳过详细分析 ----
+                    if (recentDays.length === 0 || Math.abs(concDiffVsAvg) < SKIP_THRESHOLD) {
+                        output += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
+                        if (recentDays.length === 0) {
+                            output += `   ⏭️ 近三日对比数据不足，跳过详细分析。\n`;
+                        } else {
+                            output += `   ⏭️ 浓度变化较小（差值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)} 个百分点 < ${SKIP_THRESHOLD}），略过详细分析。\n`;
+                        }
+                        output += `   ────────────────────────────────────────────\n\n`;
+                        continue;
+                    }
+
+                    // ---- 以下为详细分析（浓度变化较大） ----
+                    analyzedCount++;
+
+                    // 计算其他变化
                     let concChangeVsPrev = null,
                         flowChangeVsPrev = null,
                         pressureChangeVsPrev = null;
@@ -792,8 +815,7 @@
                     let concChangeVsAvg = null,
                         flowChangeVsAvg = null,
                         pressureChangeVsAvg = null;
-                    let concDiffVsAvg = null,
-                        flowDiffVsAvg = null,
+                    let flowDiffVsAvg = null,
                         pressureDiffVsAvg = null;
 
                     if (prevDay) {
@@ -808,7 +830,6 @@
                         concChangeVsAvg = ((latestConc - avgConc) / avgConc * 100);
                         flowChangeVsAvg = ((latestFlow - avgFlow) / avgFlow * 100);
                         pressureChangeVsAvg = ((latestPressure - avgPressure) / avgPressure * 100);
-                        concDiffVsAvg = latestConc - avgConc;
                         flowDiffVsAvg = latestFlow - avgFlow;
                         pressureDiffVsAvg = latestPressure - avgPressure;
                     }
@@ -825,7 +846,7 @@
                     output += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
                     output += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 负压 ${latestPressure.toFixed(2)}KPa | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
 
-                    // ---- 2. 前日对比（显示绝对差值 + 百分比） ----
+                    // ---- 前日对比 ----
                     if (prevDay) {
                         const concSign = concChangeVsPrev > 0 ? '↑' : '↓';
                         const flowSign = flowChangeVsPrev > 0 ? '↑' : '↓';
@@ -838,7 +859,7 @@
                         output += `   📆 前日对比: 无前日数据\n`;
                     }
 
-                    // ---- 3. 近三日平均对比（显示绝对差值 + 百分比） ----
+                    // ---- 近三日平均对比 ----
                     if (recentDays.length > 0) {
                         const concSign = concChangeVsAvg > 0 ? '↑' : '↓';
                         const flowSign = flowChangeVsAvg > 0 ? '↑' : '↓';
@@ -848,10 +869,9 @@
                         output += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${flowDiffVsAvg >= 0 ? '+' : ''}${flowDiffVsAvg.toFixed(3)}, ${flowSign}${Math.abs(flowChangeVsAvg).toFixed(1)}%)\n`;
                         output += `      负压 ${avgPressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${pressureDiffVsAvg >= 0 ? '+' : ''}${pressureDiffVsAvg.toFixed(2)}, ${pressSign}${Math.abs(pressureChangeVsAvg).toFixed(1)}%)\n`;
 
-                        // ---- 4. 波动分析（结合负压） ----
+                        // ---- 波动分析 ----
                         if (isVolatile) {
                             output += `   ⚠️ 波动预警: 浓度${volatilityDir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD}%\n`;
-                            // 结合负压变化给出诊断
                             if (pressureChangeVsAvg !== null) {
                                 const pDir = pressureChangeVsAvg > 0 ? '上升' : '下降';
                                 const pAbs = Math.abs(pressureChangeVsAvg);
@@ -875,7 +895,7 @@
                         output += `   📊 近三日对比: 数据不足 (少于2个历史检测点)\n`;
                     }
 
-                    // ---- 5. 长期趋势（保留原有一周/一月/三月） ----
+                    // ---- 长期趋势 ----
                     output += `   ── 长期趋势 ──\n`;
                     const periods = [
                         { name: "一周前", targetDate: oneWeekAgo, label: "环比上周" },
@@ -919,12 +939,16 @@
                 // ---- 总结说明 ----
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 output += `✅ 分析说明\n`;
-                output += `   • 前日对比：与最近一次检测日（不含今日）的数据对比\n`;
-                output += `   • 近三日对比：与最近三个检测日（不含今日）的平均值对比\n`;
-                output += `   • 波动阈值：浓度变化超过 ±${THRESHOLD}% 时触发波动预警\n`;
-                output += `   • 波动诊断：结合负压变化方向，给出可能的原因及建议\n`;
-                output += `   • 长期趋势：保留原有一周/一月/三月环比分析\n`;
-                output += `   • 变化展示：括号内为绝对值变化量，外为百分比变化\n`;
+                output += `   • 智能过滤：浓度变化绝对值 < ${SKIP_THRESHOLD} 个百分点的钻孔自动跳过详细分析。\n`;
+                output += `   • 前日对比：与最近一次检测日（不含今日）的数据对比。\n`;
+                output += `   • 近三日对比：与最近三个检测日（不含今日）的平均值对比。\n`;
+                output += `   • 波动预警：浓度变化超过 ±${THRESHOLD}% 时触发。\n`;
+                output += `   • 波动诊断：结合负压变化方向，给出可能的原因及建议。\n`;
+                output += `   • 长期趋势：保留原有一周/一月/三月环比分析。\n`;
+                output += `   • 变化展示：括号内为绝对值变化量，外为百分比变化。\n`;
+                if (analyzedCount === 0) {
+                    output += `   ℹ️ 当前所有钻孔浓度变化均小于 ${SKIP_THRESHOLD} 个百分点，无详细分析。\n`;
+                }
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 return output;
             }
