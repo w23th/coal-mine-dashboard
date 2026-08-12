@@ -307,7 +307,7 @@
 <body>
     <div class="system-loading" id="system-loading">
         <div class="loading-spinner"></div>
-        <h3>营脚煤矿钻孔抽采数据分析</h3>
+        <h3>营脚煤矿钻孔抽采数据</h3>
         <p id="load-status-text">正在加载 data.xlsx ...</p>
         <div class="progress-bar"><div class="progress" id="loading-progress"></div></div>
         <div id="load-detail" class="debug-info"></div>
@@ -393,7 +393,7 @@
 
         <div class="analysis-log">
             <h3><i class="fas fa-chart-line"></i> 钻孔浓度与流量变化分析
-                <span class="tag-new">总结增加负压变化</span>
+                <span class="tag-new">负压按全地点日均值对比</span>
             </h3>
             <pre id="analysis-content">正在分析中，请稍候...</pre>
         </div>
@@ -718,7 +718,7 @@
             }
 
             // ============================================================
-            //  ★★★ 核心分析函数（含负压统计） ★★★
+            //  ★★★ 核心分析函数 - 负压使用全地点日均值 ★★★
             // ============================================================
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
@@ -736,6 +736,34 @@
 
                 const THRESHOLD_PERCENT = 15;
                 const SKIP_DIFF = 10;
+
+                // ----- 构建该抽采地点每日负压平均值（所有钻孔） -----
+                // 收集该地点所有钻孔的所有检测点
+                const allPoints = [];
+                for (let item of drillDataPoints) {
+                    allPoints.push(...item.filteredPoints);
+                }
+                // 按日期分组计算负压平均值
+                const datePressureMap = new Map(); // date -> {sum, count}
+                for (let p of allPoints) {
+                    if (!datePressureMap.has(p.date)) {
+                        datePressureMap.set(p.date, { sum: 0, count: 0 });
+                    }
+                    let entry = datePressureMap.get(p.date);
+                    entry.sum += p.pressure;
+                    entry.count++;
+                }
+                const dateAvgPressure = new Map();
+                for (let [date, entry] of datePressureMap) {
+                    dateAvgPressure.set(date, entry.sum / entry.count);
+                }
+
+                // 辅助函数：获取某日期的整体负压平均值，若无则返回 null
+                function getOverallPressure(date) {
+                    if (dateAvgPressure.has(date)) return dateAvgPressure.get(date);
+                    // 尝试找最近的日期（但为了简化，只返回 exact match）
+                    return null;
+                }
 
                 // 辅助：安全百分比
                 function safePercent(newVal, oldVal) {
@@ -762,12 +790,16 @@
                     downCount = 0;
                 let warningList = [];
 
-                // 负压统计
+                // 统计整体负压变化（基于日均值）
                 let pressureUpCount = 0,
                     pressureDownCount = 0;
                 let pressureChangeSum = 0,
                     pressureChangeCount = 0;
 
+                // 获取所有日期排序
+                const allDates = Array.from(dateAvgPressure.keys()).sort();
+
+                // 对每个钻孔分析
                 for (let item of drillDataPoints) {
                     const drillId = item.drillId;
                     const points = item.filteredPoints;
@@ -778,30 +810,52 @@
                     const latestDate = latest.date;
                     const latestConc = latest.concentration;
                     const latestFlow = latest.flow;
-                    const latestPressure = latest.pressure;
+                    // 最新日期的整体负压
+                    const latestOverallPressure = getOverallPressure(latestDate);
 
-                    // 前一日
-                    let prevDay = null;
-                    if (sorted.length >= 2) {
-                        prevDay = sorted[sorted.length - 2];
+                    // 前一日（基于日期，而不是钻孔自身记录）
+                    let prevDate = null;
+                    let prevOverallPressure = null;
+                    if (allDates.length > 0) {
+                        const idx = allDates.indexOf(latestDate);
+                        if (idx > 0) {
+                            prevDate = allDates[idx - 1];
+                            prevOverallPressure = dateAvgPressure.get(prevDate);
+                        }
                     }
 
-                    // 近三日（不含最新）
+                    // 近三日平均（不含最新，基于日期）
+                    let recentDates = [];
+                    let recentPressureSum = 0,
+                        recentPressureCount = 0;
+                    const idxLatest = allDates.indexOf(latestDate);
+                    if (idxLatest > 0) {
+                        let startIdx = Math.max(0, idxLatest - 3);
+                        for (let i = startIdx; i < idxLatest; i++) {
+                            const d = allDates[i];
+                            const p = dateAvgPressure.get(d);
+                            if (p !== null && !isNaN(p)) {
+                                recentDates.push(d);
+                                recentPressureSum += p;
+                                recentPressureCount++;
+                            }
+                        }
+                    }
+                    let avgOverallPressure = recentPressureCount > 0 ? recentPressureSum / recentPressureCount : null;
+
+                    // 计算浓度变化（与钻孔自身的近三日平均对比）
                     let recentDays = [];
                     if (sorted.length >= 4) {
                         recentDays = sorted.slice(-4, -1);
                     } else if (sorted.length >= 2) {
                         recentDays = sorted.slice(0, -1);
                     }
-
                     let avgConc = 0,
-                        avgFlow = 0,
-                        avgPressure = 0;
+                        avgFlow = 0;
                     let concDiffVsAvg = null;
                     if (recentDays.length > 0) {
                         avgConc = recentDays.reduce((s, p) => s + p.concentration, 0) / recentDays.length;
                         avgFlow = recentDays.reduce((s, p) => s + p.flow, 0) / recentDays.length;
-                        avgPressure = recentDays.reduce((s, p) => s + p.pressure, 0) / recentDays.length;
                         concDiffVsAvg = latestConc - avgConc;
                     }
 
@@ -814,46 +868,29 @@
                     if (concDiffVsAvg > 0) upCount++;
                     else downCount++;
 
-                    // 计算变化
+                    // 计算浓度百分比变化
+                    let concChangeVsAvg = safePercent(latestConc, avgConc);
+                    // 流量变化
+                    let flowChangeVsAvg = safePercent(latestFlow, avgFlow);
+                    let flowDiffVsAvg = latestFlow - avgFlow;
+
+                    // 前日浓度对比（钻孔自身）
+                    let prevDayDrill = null;
+                    if (sorted.length >= 2) {
+                        prevDayDrill = sorted[sorted.length - 2];
+                    }
                     let concChangeVsPrev = null,
-                        flowChangeVsPrev = null,
-                        pressureChangeVsPrev = null;
+                        flowChangeVsPrev = null;
                     let concDiffVsPrev = null,
-                        flowDiffVsPrev = null,
-                        pressureDiffVsPrev = null;
-
-                    let concChangeVsAvg = null,
-                        flowChangeVsAvg = null,
-                        pressureChangeVsAvg = null;
-                    let flowDiffVsAvg = null,
-                        pressureDiffVsAvg = null;
-
-                    if (prevDay) {
-                        concDiffVsPrev = latestConc - prevDay.concentration;
-                        flowDiffVsPrev = latestFlow - prevDay.flow;
-                        pressureDiffVsPrev = latestPressure - prevDay.pressure;
-                        concChangeVsPrev = safePercent(latestConc, prevDay.concentration);
-                        flowChangeVsPrev = safePercent(latestFlow, prevDay.flow);
-                        pressureChangeVsPrev = safePercent(latestPressure, prevDay.pressure);
-                    }
-                    if (recentDays.length > 0) {
-                        concDiffVsAvg = latestConc - avgConc;
-                        flowDiffVsAvg = latestFlow - avgFlow;
-                        pressureDiffVsAvg = latestPressure - avgPressure;
-                        concChangeVsAvg = safePercent(latestConc, avgConc);
-                        flowChangeVsAvg = safePercent(latestFlow, avgFlow);
-                        pressureChangeVsAvg = safePercent(latestPressure, avgPressure);
-
-                        // 统计负压变化方向（基于近三日平均对比）
-                        if (pressureChangeVsAvg !== null && isFinite(pressureChangeVsAvg)) {
-                            if (pressureChangeVsAvg > 0) pressureUpCount++;
-                            else if (pressureChangeVsAvg < 0) pressureDownCount++;
-                            pressureChangeSum += pressureChangeVsAvg;
-                            pressureChangeCount++;
-                        }
+                        flowDiffVsPrev = null;
+                    if (prevDayDrill) {
+                        concDiffVsPrev = latestConc - prevDayDrill.concentration;
+                        flowDiffVsPrev = latestFlow - prevDayDrill.flow;
+                        concChangeVsPrev = safePercent(latestConc, prevDayDrill.concentration);
+                        flowChangeVsPrev = safePercent(latestFlow, prevDayDrill.flow);
                     }
 
-                    // 波动预警
+                    // 波动预警（浓度）
                     let isWarning = false;
                     if (concChangeVsAvg !== null && isFinite(concChangeVsAvg) && Math.abs(concChangeVsAvg) > THRESHOLD_PERCENT) {
                         isWarning = true;
@@ -864,44 +901,75 @@
                         });
                     }
 
-                    // ---- 构建详细分析 ----
+                    // ---- 构建详细分析（负压使用整体日均值） ----
                     let detail = '';
                     detail += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
-                    detail += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 负压 ${latestPressure.toFixed(2)}KPa | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
+                    detail += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
+                    if (latestOverallPressure !== null) {
+                        detail += `   📊 当日全地点平均负压: ${latestOverallPressure.toFixed(2)} KPa\n`;
+                    }
 
-                    if (prevDay) {
-                        detail += `   📆 前日对比 (${prevDay.date}):\n`;
-                        detail += `      浓度 ${prevDay.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsPrev, concChangeVsPrev, '%')})\n`;
-                        detail += `      流量 ${prevDay.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsPrev, flowChangeVsPrev, 'm³/min')})\n`;
-                        detail += `      负压 ${prevDay.pressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${formatChange(pressureDiffVsPrev, pressureChangeVsPrev, 'KPa')})\n`;
+                    // 前日对比（浓度、流量用钻孔自身，负压用整体）
+                    if (prevDayDrill) {
+                        detail += `   📆 前日对比 (${prevDayDrill.date}):\n`;
+                        detail += `      浓度 ${prevDayDrill.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsPrev, concChangeVsPrev, '%')})\n`;
+                        detail += `      流量 ${prevDayDrill.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsPrev, flowChangeVsPrev, 'm³/min')})\n`;
+                        if (prevOverallPressure !== null && latestOverallPressure !== null) {
+                            let pressDiff = latestOverallPressure - prevOverallPressure;
+                            let pressChange = safePercent(latestOverallPressure, prevOverallPressure);
+                            detail += `      全地点负压 ${prevOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
+                        } else {
+                            detail += `      全地点负压: 数据不足\n`;
+                        }
                     } else {
                         detail += `   📆 前日对比: 无前日数据\n`;
                     }
 
+                    // 近三日平均对比（浓度、流量用钻孔自身，负压用整体）
                     if (recentDays.length > 0) {
                         detail += `   📊 近三日平均 (${recentDays.length}日, 不含今日):\n`;
                         detail += `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsAvg, concChangeVsAvg, '%')})\n`;
                         detail += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsAvg, flowChangeVsAvg, 'm³/min')})\n`;
-                        detail += `      负压 ${avgPressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${formatChange(pressureDiffVsAvg, pressureChangeVsAvg, 'KPa')})\n`;
+                        if (avgOverallPressure !== null && latestOverallPressure !== null) {
+                            let pressDiff = latestOverallPressure - avgOverallPressure;
+                            let pressChange = safePercent(latestOverallPressure, avgOverallPressure);
+                            detail += `      全地点负压 ${avgOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
+                            // 收集负压变化统计（基于近三日整体对比）
+                            if (pressChange !== null && isFinite(pressChange)) {
+                                if (pressChange > 0) pressureUpCount++;
+                                else if (pressChange < 0) pressureDownCount++;
+                                pressureChangeSum += pressChange;
+                                pressureChangeCount++;
+                            }
+                        } else {
+                            detail += `      全地点负压: 数据不足\n`;
+                        }
 
+                        // 波动预警诊断（结合浓度和整体负压）
                         if (isWarning) {
                             let dir = concChangeVsAvg > 0 ? '上升' : '下降';
                             detail += `   ⚠️ 波动预警: 浓度${dir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
-                            if (pressureChangeVsAvg !== null && isFinite(pressureChangeVsAvg)) {
-                                const pDir = pressureChangeVsAvg > 0 ? '上升' : '下降';
-                                const pAbs = Math.abs(pressureChangeVsAvg);
-                                const pDiff = pressureDiffVsAvg;
-                                if (concChangeVsAvg < 0 && pressureChangeVsAvg > 0) {
-                                    detail += `      💡 诊断: 负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能因负压增大导致空气漏入稀释瓦斯。建议检查封孔质量及管路密闭性。\n`;
-                                } else if (concChangeVsAvg < 0 && pressureChangeVsAvg < 0) {
-                                    detail += `      💡 诊断: 负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能抽采负压不足，建议检查管路漏气、泵站运行或钻孔堵塞。\n`;
-                                } else if (concChangeVsAvg > 0 && pressureChangeVsAvg > 0) {
-                                    detail += `      💡 诊断: 负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升，表明煤层瓦斯涌出增加，抽采效果向好，可维持当前参数。\n`;
-                                } else if (concChangeVsAvg > 0 && pressureChangeVsAvg < 0) {
-                                    detail += `      💡 诊断: 负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升但负压下降，可能因负压降低导致瓦斯解析增加，需关注流量及钻孔稳定性。\n`;
+                            // 使用整体负压变化进行诊断
+                            if (avgOverallPressure !== null && latestOverallPressure !== null) {
+                                let pressChange = safePercent(latestOverallPressure, avgOverallPressure);
+                                if (pressChange !== null && isFinite(pressChange)) {
+                                    const pDir = pressChange > 0 ? '上升' : '下降';
+                                    const pAbs = Math.abs(pressChange);
+                                    const pDiff = latestOverallPressure - avgOverallPressure;
+                                    if (concChangeVsAvg < 0 && pressChange > 0) {
+                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能因负压增大导致空气漏入稀释瓦斯。建议检查封孔质量及管路密闭性。\n`;
+                                    } else if (concChangeVsAvg < 0 && pressChange < 0) {
+                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能抽采负压不足，建议检查管路漏气、泵站运行或钻孔堵塞。\n`;
+                                    } else if (concChangeVsAvg > 0 && pressChange > 0) {
+                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升，表明煤层瓦斯涌出增加，抽采效果向好，可维持当前参数。\n`;
+                                    } else if (concChangeVsAvg > 0 && pressChange < 0) {
+                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升但负压下降，可能因负压降低导致瓦斯解析增加，需关注流量及钻孔稳定性。\n`;
+                                    }
+                                } else {
+                                    detail += `      💡 诊断: 浓度波动较大，但整体负压变化数据不足，建议现场排查。\n`;
                                 }
                             } else {
-                                detail += `      💡 诊断: 浓度波动较大，但缺乏有效负压对比数据，建议现场排查。\n`;
+                                detail += `      💡 诊断: 浓度波动较大，但缺乏整体负压对比数据，建议现场排查。\n`;
                             }
                         } else {
                             let stableMsg = `   ✅ 浓度稳定: 变化 ${concChangeVsAvg !== null && isFinite(concChangeVsAvg) ? Math.abs(concChangeVsAvg).toFixed(1) + '%' : ''} (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%)，在正常范围内。`;
@@ -911,7 +979,7 @@
                         detail += `   📊 近三日对比: 数据不足 (少于2个历史检测点)\n`;
                     }
 
-                    // 长期趋势
+                    // 长期趋势（浓度、流量用钻孔自身，负压用整体，但为了简洁，长期趋势只保留浓度和流量）
                     detail += `   ── 长期趋势 ──\n`;
                     const periods = [
                         { name: "一周前", targetDate: oneWeekAgo, label: "环比上周" },
@@ -953,7 +1021,7 @@
                     significantResults.push(detail);
                 }
 
-                // ---- 总结报告 ----
+                // ---- 总结报告（负压基于整体） ----
                 let summary = '';
                 summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 summary += `📋 分析总结\n`;
@@ -965,13 +1033,13 @@
                     summary += `${significantCount} 个钻孔浓度变化显著（差值≥${SKIP_DIFF}个百分点）。\n`;
                     summary += `• 显著变化方向：上升 ${upCount} 个，下降 ${downCount} 个。\n`;
 
-                    // 负压变化统计
+                    // 整体负压变化统计
                     if (pressureChangeCount > 0) {
                         let avgPressureChange = pressureChangeSum / pressureChangeCount;
                         let pDir = avgPressureChange > 0 ? '上升' : '下降';
-                        summary += `• 负压变化（基于近三日平均）：上升 ${pressureUpCount} 个，下降 ${pressureDownCount} 个，平均 ${pDir} ${Math.abs(avgPressureChange).toFixed(1)}%。\n`;
+                        summary += `• 全地点负压变化（基于近三日整体日均值）：上升 ${pressureUpCount} 个时段，下降 ${pressureDownCount} 个时段，平均 ${pDir} ${Math.abs(avgPressureChange).toFixed(1)}%。\n`;
                     } else {
-                        summary += `• 负压变化：有效数据不足，无法统计。\n`;
+                        summary += `• 全地点负压变化：有效数据不足，无法统计。\n`;
                     }
 
                     if (warningList.length > 0) {
@@ -985,27 +1053,27 @@
                         summary += `• 无钻孔触发波动预警（阈值 ±${THRESHOLD_PERCENT}%）。\n`;
                     }
 
-                    // 结论性建议（结合负压）
+                    // 结论性建议（结合浓度和整体负压）
                     if (upCount > downCount) {
                         summary += `• 结论：多数钻孔浓度呈上升趋势，抽采效果向好。`;
                         if (pressureUpCount > pressureDownCount) {
-                            summary += ` 同时负压普遍上升，表明抽采系统能力增强，建议继续保持当前参数。\n`;
+                            summary += ` 同时整体负压上升，表明抽采系统能力增强，建议继续保持当前参数。\n`;
                         } else if (pressureDownCount > pressureUpCount) {
-                            summary += ` 但负压普遍下降，需关注负压降低对浓度持续性的影响，建议适当提高抽采负压。\n`;
+                            summary += ` 但整体负压下降，需关注负压降低对浓度持续性的影响，建议适当提高抽采负压。\n`;
                         } else {
-                            summary += ` 负压变化不明显，建议维持现状。\n`;
+                            summary += ` 整体负压变化不明显，建议维持现状。\n`;
                         }
                     } else if (downCount > upCount) {
-                        summary += `• 结论：多数钻孔浓度呈下降趋势，建议结合负压变化排查。`;
+                        summary += `• 结论：多数钻孔浓度呈下降趋势，建议结合整体负压变化排查。`;
                         if (pressureUpCount > pressureDownCount) {
-                            summary += ` 负压上升可能导致空气漏入，建议检查封孔及管路密闭性。\n`;
+                            summary += ` 整体负压上升可能导致空气漏入，建议检查封孔及管路密闭性。\n`;
                         } else if (pressureDownCount > pressureUpCount) {
-                            summary += ` 负压下降可能造成抽采动力不足，建议检查泵站及管路漏气。\n`;
+                            summary += ` 整体负压下降可能造成抽采动力不足，建议检查泵站及管路漏气。\n`;
                         } else {
-                            summary += ` 负压变化不明显，建议排查钻孔堵塞或煤层透气性变化。\n`;
+                            summary += ` 整体负压变化不明显，建议排查钻孔堵塞或煤层透气性变化。\n`;
                         }
                     } else {
-                        summary += `• 结论：上升与下降钻孔数量相当，建议重点关注波动预警钻孔，结合负压变化进行针对性排查。\n`;
+                        summary += `• 结论：上升与下降钻孔数量相当，建议重点关注波动预警钻孔，结合整体负压变化进行针对性排查。\n`;
                     }
                 }
                 summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -1018,7 +1086,7 @@
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 output += `📌 智能过滤：仅显示浓度变化 ≥ ${SKIP_DIFF} 个百分点的钻孔（基于近三日平均对比）\n`;
                 output += `   ⚠️ 波动预警阈值：浓度百分比变化 ≥ ±${THRESHOLD_PERCENT}%\n`;
-                output += `   🔧 当旧值为0时，百分比显示为“N/A”，仅展示绝对变化值。\n`;
+                output += `   🔧 负压分析采用全地点日均值（所有钻孔当天负压平均），不再针对单个钻孔。\n`;
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
                 if (significantResults.length > 0) {
