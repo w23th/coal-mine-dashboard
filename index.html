@@ -393,7 +393,7 @@
 
         <div class="analysis-log">
             <h3><i class="fas fa-chart-line"></i> 钻孔浓度与流量变化分析
-                <span class="tag-new">智能过滤：仅显示浓度变化≥10个百分点，并生成总结报告</span>
+                <span class="tag-new">智能过滤 + 无限值保护</span>
             </h3>
             <pre id="analysis-content">正在分析中，请稍候...</pre>
         </div>
@@ -718,7 +718,7 @@
             }
 
             // ============================================================
-            //  ★★★ 核心分析函数 - 仅显示显著变化钻孔 + 总结报告 ★★★
+            //  ★★★ 优化后的核心分析函数（修复 Infinity 问题） ★★★
             // ============================================================
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
@@ -734,18 +734,35 @@
                 const threeMonthsAgo = new Date(now);
                 threeMonthsAgo.setMonth(now.getMonth() - 3);
 
-                const THRESHOLD_PERCENT = 15; // 百分比变化阈值（用于波动预警）
-                const SKIP_DIFF = 10; // 浓度百分点差值阈值（小于此值则完全隐藏）
+                const THRESHOLD_PERCENT = 15;
+                const SKIP_DIFF = 10;
 
-                // 统计变量
+                // 辅助：安全计算百分比，分母为0或NaN时返回 null
+                function safePercent(newVal, oldVal) {
+                    if (oldVal === 0 || oldVal === null || oldVal === undefined || isNaN(oldVal)) return null;
+                    if (newVal === null || newVal === undefined || isNaN(newVal)) return null;
+                    return ((newVal - oldVal) / oldVal * 100);
+                }
+
+                // 辅助：格式化变化描述，只显示绝对值，如果有有效百分比则追加
+                function formatChange(diff, percent, unit = '') {
+                    let sign = diff >= 0 ? '+' : '';
+                    let absDiff = diff.toFixed(unit === '' ? (Math.abs(diff) < 1 ? 3 : 1) : (unit === 'm³/min' ? 3 : 2));
+                    let str = `${sign}${absDiff}${unit}`;
+                    if (percent !== null && isFinite(percent)) {
+                        let pSign = percent >= 0 ? '↑' : '↓';
+                        str += ` (${pSign}${Math.abs(percent).toFixed(1)}%)`;
+                    }
+                    return str;
+                }
+
                 let totalDrills = drillDataPoints.length;
-                let significantResults = []; // 存储每个显著钻孔的分析字符串和统计信息
+                let significantResults = [];
                 let significantCount = 0;
                 let upCount = 0,
                     downCount = 0;
-                let warningList = []; // 存储预警钻孔 {id, changePercent, diff}
+                let warningList = [];
 
-                // 遍历每个钻孔
                 for (let item of drillDataPoints) {
                     const drillId = item.drillId;
                     const points = item.filteredPoints;
@@ -764,7 +781,7 @@
                         prevDay = sorted[sorted.length - 2];
                     }
 
-                    // 近三日（最近三个检测日，不含最新）
+                    // 近三日（不含最新）
                     let recentDays = [];
                     if (sorted.length >= 4) {
                         recentDays = sorted.slice(-4, -1);
@@ -783,19 +800,16 @@
                         concDiffVsAvg = latestConc - avgConc;
                     }
 
-                    // ---- 判断是否显著（浓度差值绝对值 >= SKIP_DIFF） ----
+                    // 跳过不显著的钻孔
                     if (recentDays.length === 0 || Math.abs(concDiffVsAvg) < SKIP_DIFF) {
-                        // 不显著，完全跳过（不输出任何内容）
                         continue;
                     }
 
-                    // ---- 显著钻孔，进行详细分析 ----
                     significantCount++;
-                    // 统计方向
                     if (concDiffVsAvg > 0) upCount++;
                     else downCount++;
 
-                    // 计算其他变化
+                    // 计算变化（使用安全百分比）
                     let concChangeVsPrev = null,
                         flowChangeVsPrev = null,
                         pressureChangeVsPrev = null;
@@ -810,24 +824,25 @@
                         pressureDiffVsAvg = null;
 
                     if (prevDay) {
-                        concChangeVsPrev = ((latestConc - prevDay.concentration) / prevDay.concentration * 100);
-                        flowChangeVsPrev = ((latestFlow - prevDay.flow) / prevDay.flow * 100);
-                        pressureChangeVsPrev = ((latestPressure - prevDay.pressure) / prevDay.pressure * 100);
                         concDiffVsPrev = latestConc - prevDay.concentration;
                         flowDiffVsPrev = latestFlow - prevDay.flow;
                         pressureDiffVsPrev = latestPressure - prevDay.pressure;
+                        concChangeVsPrev = safePercent(latestConc, prevDay.concentration);
+                        flowChangeVsPrev = safePercent(latestFlow, prevDay.flow);
+                        pressureChangeVsPrev = safePercent(latestPressure, prevDay.pressure);
                     }
                     if (recentDays.length > 0) {
-                        concChangeVsAvg = ((latestConc - avgConc) / avgConc * 100);
-                        flowChangeVsAvg = ((latestFlow - avgFlow) / avgFlow * 100);
-                        pressureChangeVsAvg = ((latestPressure - avgPressure) / avgPressure * 100);
+                        concDiffVsAvg = latestConc - avgConc;
                         flowDiffVsAvg = latestFlow - avgFlow;
                         pressureDiffVsAvg = latestPressure - avgPressure;
+                        concChangeVsAvg = safePercent(latestConc, avgConc);
+                        flowChangeVsAvg = safePercent(latestFlow, avgFlow);
+                        pressureChangeVsAvg = safePercent(latestPressure, avgPressure);
                     }
 
-                    // 波动预警判断（百分比变化）
+                    // 波动预警
                     let isWarning = false;
-                    if (concChangeVsAvg !== null && Math.abs(concChangeVsAvg) > THRESHOLD_PERCENT) {
+                    if (concChangeVsAvg !== null && isFinite(concChangeVsAvg) && Math.abs(concChangeVsAvg) > THRESHOLD_PERCENT) {
                         isWarning = true;
                         warningList.push({
                             id: drillId,
@@ -836,38 +851,33 @@
                         });
                     }
 
-                    // ---- 构建该钻孔的分析文本 ----
+                    // ---- 构建详细分析 ----
                     let detail = '';
                     detail += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
                     detail += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 负压 ${latestPressure.toFixed(2)}KPa | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
 
                     // 前日对比
                     if (prevDay) {
-                        const concSign = concChangeVsPrev > 0 ? '↑' : '↓';
-                        const flowSign = flowChangeVsPrev > 0 ? '↑' : '↓';
-                        const pressSign = pressureChangeVsPrev > 0 ? '↑' : '↓';
                         detail += `   📆 前日对比 (${prevDay.date}):\n`;
-                        detail += `      浓度 ${prevDay.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${concDiffVsPrev >= 0 ? '+' : ''}${concDiffVsPrev.toFixed(1)}%, ${concSign}${Math.abs(concChangeVsPrev).toFixed(1)}%)\n`;
-                        detail += `      流量 ${prevDay.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${flowDiffVsPrev >= 0 ? '+' : ''}${flowDiffVsPrev.toFixed(3)}, ${flowSign}${Math.abs(flowChangeVsPrev).toFixed(1)}%)\n`;
-                        detail += `      负压 ${prevDay.pressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${pressureDiffVsPrev >= 0 ? '+' : ''}${pressureDiffVsPrev.toFixed(2)}, ${pressSign}${Math.abs(pressureChangeVsPrev).toFixed(1)}%)\n`;
+                        detail += `      浓度 ${prevDay.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsPrev, concChangeVsPrev, '%')})\n`;
+                        detail += `      流量 ${prevDay.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsPrev, flowChangeVsPrev, 'm³/min')})\n`;
+                        detail += `      负压 ${prevDay.pressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${formatChange(pressureDiffVsPrev, pressureChangeVsPrev, 'KPa')})\n`;
                     } else {
                         detail += `   📆 前日对比: 无前日数据\n`;
                     }
 
                     // 近三日平均对比
                     if (recentDays.length > 0) {
-                        const concSign = concChangeVsAvg > 0 ? '↑' : '↓';
-                        const flowSign = flowChangeVsAvg > 0 ? '↑' : '↓';
-                        const pressSign = pressureChangeVsAvg > 0 ? '↑' : '↓';
                         detail += `   📊 近三日平均 (${recentDays.length}日, 不含今日):\n`;
-                        detail += `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%, ${concSign}${Math.abs(concChangeVsAvg).toFixed(1)}%)\n`;
-                        detail += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${flowDiffVsAvg >= 0 ? '+' : ''}${flowDiffVsAvg.toFixed(3)}, ${flowSign}${Math.abs(flowChangeVsAvg).toFixed(1)}%)\n`;
-                        detail += `      负压 ${avgPressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${pressureDiffVsAvg >= 0 ? '+' : ''}${pressureDiffVsAvg.toFixed(2)}, ${pressSign}${Math.abs(pressureChangeVsAvg).toFixed(1)}%)\n`;
+                        detail += `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsAvg, concChangeVsAvg, '%')})\n`;
+                        detail += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsAvg, flowChangeVsAvg, 'm³/min')})\n`;
+                        detail += `      负压 ${avgPressure.toFixed(2)} → ${latestPressure.toFixed(2)}  (${formatChange(pressureDiffVsAvg, pressureChangeVsAvg, 'KPa')})\n`;
 
                         // 波动预警
                         if (isWarning) {
-                            detail += `   ⚠️ 波动预警: 浓度变化 ${concChangeVsAvg > 0 ? '上升' : '下降'} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
-                            if (pressureChangeVsAvg !== null) {
+                            let dir = concChangeVsAvg > 0 ? '上升' : '下降';
+                            detail += `   ⚠️ 波动预警: 浓度${dir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
+                            if (pressureChangeVsAvg !== null && isFinite(pressureChangeVsAvg)) {
                                 const pDir = pressureChangeVsAvg > 0 ? '上升' : '下降';
                                 const pAbs = Math.abs(pressureChangeVsAvg);
                                 const pDiff = pressureDiffVsAvg;
@@ -881,10 +891,11 @@
                                     detail += `      💡 诊断: 负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升但负压下降，可能因负压降低导致瓦斯解析增加，需关注流量及钻孔稳定性。\n`;
                                 }
                             } else {
-                                detail += `      💡 诊断: 浓度波动较大，但缺乏负压对比数据，建议现场排查。\n`;
+                                detail += `      💡 诊断: 浓度波动较大，但缺乏有效负压对比数据，建议现场排查。\n`;
                             }
                         } else {
-                            detail += `   ✅ 浓度稳定: 变化 ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%)，在正常范围内。\n`;
+                            let stableMsg = `   ✅ 浓度稳定: 变化 ${concChangeVsAvg !== null && isFinite(concChangeVsAvg) ? Math.abs(concChangeVsAvg).toFixed(1) + '%' : ''} (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%)，在正常范围内。`;
+                            detail += stableMsg + '\n';
                         }
                     } else {
                         detail += `   📊 近三日对比: 数据不足 (少于2个历史检测点)\n`;
@@ -914,13 +925,13 @@
                         if (bestPoint) {
                             const oldConc = bestPoint.concentration;
                             const oldFlow = bestPoint.flow;
-                            const concChange = ((latestConc - oldConc) / oldConc * 100);
-                            const flowChange = ((latestFlow - oldFlow) / oldFlow * 100);
-                            const cSign = concChange > 0 ? '↑' : '↓';
-                            const fSign = flowChange > 0 ? '↑' : '↓';
+                            const concChange = safePercent(latestConc, oldConc);
+                            const flowChange = safePercent(latestFlow, oldFlow);
                             const concDiff = latestConc - oldConc;
                             const flowDiff = latestFlow - oldFlow;
-                            detail += `      ${period.label}: 浓度 ${cSign} ${Math.abs(concChange).toFixed(1)}% (${concDiff >= 0 ? '+' : ''}${concDiff.toFixed(1)}%)  |  流量 ${fSign} ${Math.abs(flowChange).toFixed(1)}% (${flowDiff >= 0 ? '+' : ''}${flowDiff.toFixed(3)})\n`;
+                            let concStr = formatChange(concDiff, concChange, '%');
+                            let flowStr = formatChange(flowDiff, flowChange, 'm³/min');
+                            detail += `      ${period.label}: 浓度 ${concStr}  |  流量 ${flowStr}\n`;
                             hasLongTerm = true;
                         }
                     }
@@ -932,7 +943,7 @@
                     significantResults.push(detail);
                 }
 
-                // ---- 生成总结报告 ----
+                // ---- 总结报告 ----
                 let summary = '';
                 summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 summary += `📋 分析总结\n`;
@@ -946,12 +957,14 @@
                     if (warningList.length > 0) {
                         summary += `• 波动预警钻孔（浓度变化 ≥ ±${THRESHOLD_PERCENT}%）：\n`;
                         for (let w of warningList) {
-                            summary += `   - ${w.id}：变化 ${w.changePercent > 0 ? '↑' : '↓'} ${Math.abs(w.changePercent).toFixed(1)}% (绝对值 ${w.diff >= 0 ? '+' : ''}${w.diff.toFixed(1)}个百分点)\n`;
+                            let pct = w.changePercent !== null && isFinite(w.changePercent) ? Math.abs(w.changePercent)
+                                .toFixed(1) + '%' : 'N/A';
+                            summary += `   - ${w.id}：变化 ${w.changePercent > 0 ? '↑' : '↓'} ${pct} (绝对值 ${w.diff >= 0 ? '+' : ''}${w.diff.toFixed(1)}个百分点)\n`;
                         }
                     } else {
                         summary += `• 无钻孔触发波动预警（阈值 ±${THRESHOLD_PERCENT}%）。\n`;
                     }
-                    // 结论性建议
+                    // 结论
                     if (upCount > downCount) {
                         summary += `• 结论：多数钻孔浓度呈上升趋势，抽采效果向好，建议继续保持当前抽采参数。\n`;
                     } else if (downCount > upCount) {
@@ -970,18 +983,16 @@
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 output += `📌 智能过滤：仅显示浓度变化 ≥ ${SKIP_DIFF} 个百分点的钻孔（基于近三日平均对比）\n`;
                 output += `   ⚠️ 波动预警阈值：浓度百分比变化 ≥ ±${THRESHOLD_PERCENT}%\n`;
+                output += `   🔧 当旧值为0时，百分比显示为“N/A”，仅展示绝对变化值。\n`;
                 output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-                // 添加详细分析（如果有）
                 if (significantResults.length > 0) {
                     output += significantResults.join('');
                 } else {
                     output += `📌 当前所有钻孔浓度变化均小于 ${SKIP_DIFF} 个百分点，无详细分析内容。\n\n`;
                 }
 
-                // 添加总结报告
                 output += summary;
-
                 return output;
             }
 
