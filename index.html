@@ -289,7 +289,6 @@
         .analysis-log pre::-webkit-scrollbar-thumb:hover {
             background: #34495e;
         }
-        /* 时间范围模式标签 */
         .mode-badge {
             display: inline-block;
             background: rgba(52, 152, 219, 0.25);
@@ -345,7 +344,6 @@
                 <div class="control-group"><label>抽采地点</label><select id="location-select"></select></div>
                 <div class="control-group"><label>显示模式</label><select id="display-range"><option value="all">全部钻孔(多曲线)</option><option value="single">单孔显示</option></select></div>
                 <div class="control-group"><label>钻孔编号</label><select id="drill-select" disabled></select></div>
-                <!-- ★★★ 新增：时间范围切换 ★★★ -->
                 <div class="control-group" style="min-width:150px;">
                     <label>时间范围 <span class="mode-badge" id="mode-badge">最近一月</span></label>
                     <select id="time-range-mode">
@@ -471,7 +469,6 @@
                 paramStartFlow: getElement('param-start-flow'),
                 initialConcBox: getElement('initial-conc-box'),
                 analysisContent: getElement('analysis-content'),
-                // ★★★ 新增：时间范围模式 ★★★
                 timeRangeMode: getElement('time-range-mode'),
                 modeBadge: getElement('mode-badge')
             };
@@ -645,11 +642,9 @@
                 dom.drillSelect.disabled = (dom.displayRange.value === 'all');
             }
 
-            // ★★★ 核心修改：根据模式设置日期范围（默认最近一月） ★★★
             function setDefaultDateRange() {
                 if (!dom.startDate || !dom.endDate || !dom.dataRangeSpan) return;
 
-                // 收集所有日期
                 let allDates = [];
                 for (let points of drillMap.values()) {
                     allDates.push(...points.map(p => p.date));
@@ -665,28 +660,22 @@
                 const latest = allDates[allDates.length - 1];
                 dom.dataRangeSpan.innerText = `${earliest} 至 ${latest}`;
 
-                // 读取当前模式
                 const mode = dom.timeRangeMode ? dom.timeRangeMode.value : 'month';
-
-                // 更新徽章
                 if (dom.modeBadge) {
                     dom.modeBadge.textContent = mode === 'month' ? '最近一月' : '全部数据';
                 }
 
                 if (mode === 'month') {
-                    // 从数据最晚日期往前推30天
                     const latestDate = new Date(latest);
                     const thirtyDaysAgo = new Date(latestDate);
                     thirtyDaysAgo.setDate(latestDate.getDate() - 30);
                     let startDateStr = thirtyDaysAgo.toISOString().slice(0, 10);
-                    // 如果30天前早于数据最早日期，则从最早日期开始（即显示全部）
                     if (startDateStr < earliest) {
                         startDateStr = earliest;
                     }
                     dom.startDate.value = startDateStr;
                     dom.endDate.value = latest;
                 } else {
-                    // 全部数据
                     dom.startDate.value = earliest;
                     dom.endDate.value = latest;
                 }
@@ -773,7 +762,6 @@
                 const THRESHOLD_PERCENT = 15;
                 const SKIP_DIFF = 1;
 
-                // 构建该抽采地点每日负压平均值（所有钻孔）
                 const allPoints = [];
                 for (let item of drillDataPoints) {
                     allPoints.push(...item.filteredPoints);
@@ -1123,7 +1111,7 @@
             }
 
             // ============================================================
-            //  渲染函数
+            //  渲染函数 - 修改了 tooltip 增加分析摘要
             // ============================================================
 
             function renderCharts(drillDataPoints) {
@@ -1146,6 +1134,10 @@
                     allPressures = [],
                     allFlows = [];
 
+                // ★★★ 为每个钻孔构建分析摘要，供 tooltip 使用 ★★★
+                // 存储每个数据集的分析摘要数组，索引与 sortedDates 对应
+                const analysisSummaries = [];
+
                 for (let idx in drillDataPoints) {
                     const item = drillDataPoints[idx];
                     const drillId = item.drillId;
@@ -1154,6 +1146,56 @@
                     const concData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).concentration : null);
                     const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
                     const flowData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).flow : null);
+
+                    // ★★★ 构建该钻孔的摘要数组 ★★★
+                    const sortedPoints = [...item.filteredPoints].sort((a, b) => a.date.localeCompare(b.date));
+                    const summaryMap = new Map();
+                    for (let i = 0; i < sortedPoints.length; i++) {
+                        const p = sortedPoints[i];
+                        let summary = '';
+                        // 前一日对比
+                        if (i > 0) {
+                            const prev = sortedPoints[i - 1];
+                            const concDiff = p.concentration - prev.concentration;
+                            const flowDiff = p.flow - prev.flow;
+                            const concPercent = prev.concentration !== 0 ? (concDiff / prev.concentration * 100) : null;
+                            const flowPercent = prev.flow !== 0 ? (flowDiff / prev.flow * 100) : null;
+                            summary += `前日: 浓度${concDiff >= 0 ? '+' : ''}${concDiff.toFixed(1)}%`;
+                            if (concPercent !== null) {
+                                summary += ` (${concPercent >= 0 ? '+' : ''}${concPercent.toFixed(1)}%)`;
+                            }
+                            summary += `，流量${flowDiff >= 0 ? '+' : ''}${flowDiff.toFixed(3)}m³/min`;
+                            if (flowPercent !== null) {
+                                summary += ` (${flowPercent >= 0 ? '+' : ''}${flowPercent.toFixed(1)}%)`;
+                            }
+                        } else {
+                            summary += '前日: 无数据';
+                        }
+                        // 近三日平均对比
+                        const prevPoints = sortedPoints.slice(Math.max(0, i - 3), i);
+                        if (prevPoints.length > 0) {
+                            const avgConc = prevPoints.reduce((s, q) => s + q.concentration, 0) / prevPoints.length;
+                            const avgFlow = prevPoints.reduce((s, q) => s + q.flow, 0) / prevPoints.length;
+                            const concDiffAvg = p.concentration - avgConc;
+                            const flowDiffAvg = p.flow - avgFlow;
+                            const concPercentAvg = avgConc !== 0 ? (concDiffAvg / avgConc * 100) : null;
+                            const flowPercentAvg = avgFlow !== 0 ? (flowDiffAvg / avgFlow * 100) : null;
+                            summary += ` | 近三日平均: 浓度${concDiffAvg >= 0 ? '+' : ''}${concDiffAvg.toFixed(1)}%`;
+                            if (concPercentAvg !== null) {
+                                summary += ` (${concPercentAvg >= 0 ? '+' : ''}${concPercentAvg.toFixed(1)}%)`;
+                            }
+                            summary += `，流量${flowDiffAvg >= 0 ? '+' : ''}${flowDiffAvg.toFixed(3)}m³/min`;
+                            if (flowPercentAvg !== null) {
+                                summary += ` (${flowPercentAvg >= 0 ? '+' : ''}${flowPercentAvg.toFixed(1)}%)`;
+                            }
+                        } else {
+                            summary += ` | 近三日平均: 数据不足`;
+                        }
+                        summaryMap.set(p.date, summary);
+                    }
+                    // 映射到 sortedDates
+                    const summaryArray = sortedDates.map(date => summaryMap.has(date) ? summaryMap.get(date) : null);
+                    analysisSummaries.push(summaryArray);
 
                     concDatasets.push({
                         label: `钻孔编号: ${drillId}`,
@@ -1165,7 +1207,8 @@
                         pointRadius: 3,
                         fill: false,
                         spanGaps: true,
-                        drillId: drillId
+                        drillId: drillId,
+                        analysisSummary: summaryArray // ★★★ 存入摘要 ★★★
                     });
                     pressureDatasets.push({
                         label: `钻孔编号: ${drillId}`,
@@ -1177,7 +1220,8 @@
                         pointRadius: 3,
                         fill: false,
                         spanGaps: true,
-                        drillId: drillId
+                        drillId: drillId,
+                        analysisSummary: summaryArray
                     });
                     flowDatasets.push({
                         label: `钻孔编号: ${drillId}`,
@@ -1189,7 +1233,8 @@
                         pointRadius: 3,
                         fill: false,
                         spanGaps: true,
-                        drillId: drillId
+                        drillId: drillId,
+                        analysisSummary: summaryArray
                     });
                     item.filteredPoints.forEach(p => {
                         allConcs.push(p.concentration);
@@ -1280,6 +1325,37 @@
                 if (pressureChart) pressureChart.destroy();
                 if (flowChart) flowChart.destroy();
 
+                // 辅助函数：构建 tooltip label
+                function makeLabel(context) {
+                    const dataset = context.dataset;
+                    const drillId = dataset.drillId;
+                    if (!drillId) return null;
+                    const drill = drills.find(d => d.drillId === drillId && d.location === (dom.locationSelect ? dom
+                        .locationSelect.value : ''));
+                    if (!drill) return null;
+                    const dataIndex = context.dataIndex;
+                    const value = dataset.data[dataIndex];
+                    if (value === null || value === undefined) return null;
+                    const dateLabel = context.label;
+                    const lines = [
+                        `钻孔编号: ${drill.drillId}`,
+                        `方位角: ${drill.azimuth}°`,
+                        `倾角: ${drill.dip}°`,
+                        `孔深: ${drill.depth}m`,
+                        `始抽时间: ${drill.startTime}`,
+                        `始抽浓度: ${drill.startConc}%`,
+                        `─────────────`,
+                        `检测日期: ${dateLabel}`,
+                        `浓度: ${value} %`
+                    ];
+                    // ★★★ 添加分析摘要 ★★★
+                    if (dataset.analysisSummary && dataset.analysisSummary[dataIndex]) {
+                        const summary = dataset.analysisSummary[dataIndex];
+                        lines.push(`📊 分析: ${summary}`);
+                    }
+                    return lines;
+                }
+
                 const concCtx = document.getElementById('concentration-chart');
                 const pressCtx = document.getElementById('pressure-chart');
                 const flowCtx = document.getElementById('flow-chart');
@@ -1295,27 +1371,9 @@
                                 tooltip: {
                                     callbacks: {
                                         label: function(context) {
-                                            const dataset = context.dataset;
-                                            const drillId = dataset.drillId;
-                                            if (!drillId) return null;
-                                            const drill = drills.find(d => d.drillId === drillId && d.location === (
-                                                dom.locationSelect ? dom.locationSelect.value : ''));
-                                            if (!drill) return null;
-                                            const dataIndex = context.dataIndex;
-                                            const value = dataset.data[dataIndex];
-                                            if (value === null || value === undefined) return null;
-                                            const dateLabel = context.label;
-                                            return [
-                                                `钻孔编号: ${drill.drillId}`,
-                                                `方位角: ${drill.azimuth}°`,
-                                                `倾角: ${drill.dip}°`,
-                                                `孔深: ${drill.depth}m`,
-                                                `始抽时间: ${drill.startTime}`,
-                                                `始抽浓度: ${drill.startConc}%`,
-                                                `─────────────`,
-                                                `检测日期: ${dateLabel}`,
-                                                `浓度: ${value} %`
-                                            ];
+                                            const lines = makeLabel(context);
+                                            if (!lines) return null;
+                                            return lines;
                                         }
                                     }
                                 }
@@ -1345,7 +1403,7 @@
                                             const value = dataset.data[dataIndex];
                                             if (value === null || value === undefined) return null;
                                             const dateLabel = context.label;
-                                            return [
+                                            const lines = [
                                                 `钻孔编号: ${drill.drillId}`,
                                                 `方位角: ${drill.azimuth}°`,
                                                 `倾角: ${drill.dip}°`,
@@ -1356,6 +1414,10 @@
                                                 `检测日期: ${dateLabel}`,
                                                 `负压: ${value} KPa`
                                             ];
+                                            if (dataset.analysisSummary && dataset.analysisSummary[dataIndex]) {
+                                                lines.push(`📊 分析: ${dataset.analysisSummary[dataIndex]}`);
+                                            }
+                                            return lines;
                                         }
                                     }
                                 }
@@ -1386,7 +1448,7 @@
                                             const value = dataset.data[dataIndex];
                                             if (value === null || value === undefined) return null;
                                             const dateLabel = context.label;
-                                            return [
+                                            const lines = [
                                                 `钻孔编号: ${drill.drillId}`,
                                                 `方位角: ${drill.azimuth}°`,
                                                 `倾角: ${drill.dip}°`,
@@ -1397,6 +1459,10 @@
                                                 `检测日期: ${dateLabel}`,
                                                 `流量: ${value} m³/min`
                                             ];
+                                            if (dataset.analysisSummary && dataset.analysisSummary[dataIndex]) {
+                                                lines.push(`📊 分析: ${dataset.analysisSummary[dataIndex]}`);
+                                            }
+                                            return lines;
                                         }
                                     }
                                 }
@@ -1469,12 +1535,9 @@
                 if (dom.drillSelect) dom.drillSelect.addEventListener('change', refresh);
                 if (dom.applyBtn) dom.applyBtn.addEventListener('click', refresh);
 
-                // ★★★ 新增：时间范围模式切换 ★★★
                 if (dom.timeRangeMode) {
                     dom.timeRangeMode.addEventListener('change', function() {
-                        // 根据模式自动设置日期范围
                         setDefaultDateRange();
-                        // 刷新所有图表和数据
                         refreshAll();
                     });
                 }
@@ -1509,7 +1572,6 @@
                     drillMap = buildDrillMap();
                     updateLocationSelect();
                     updateDrillSelect(dom.locationSelect ? dom.locationSelect.value : '');
-                    // ★★★ 调用 setDefaultDateRange 设置默认日期范围（最近一月） ★★★
                     setDefaultDateRange();
                     renderDrillsTable();
                     bindEvents();
