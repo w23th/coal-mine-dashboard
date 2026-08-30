@@ -1626,6 +1626,10 @@
                     if (dom.mainContainer) dom.mainContainer.style.display = 'block';
                 }, 2000);
             } else {
+                 // 全局 Tooltip 字体放大
+              Chart.defaults.plugins.tooltip.titleFontSize = 16;
+              Chart.defaults.plugins.tooltip.bodyFontSize = 16;
+              Chart.defaults.plugins.tooltip.padding = 14;
                 init();
             }
         })();
