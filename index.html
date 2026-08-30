@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>营脚煤矿钻孔抽采数据分析</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js">
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js">
@@ -52,7 +52,8 @@
             background: rgba(35, 55, 75, 0.6);
             padding: 12px;
             border-radius: 12px;
-            min-width: 180px;
+            min-width: 160px;
+            flex: 1 0 auto;
         }
         select,
         input,
@@ -63,6 +64,7 @@
             background: rgba(25, 40, 55, 0.9);
             color: #f0f0f0;
             font-size: 0.9rem;
+            width: 100%;
         }
         .btn-apply {
             background: linear-gradient(135deg, #3498db, #2980b9);
@@ -70,6 +72,8 @@
             font-weight: bold;
             cursor: pointer;
             padding: 8px 20px;
+            width: auto;
+            min-width: 100px;
         }
         .btn-history {
             background: linear-gradient(135deg, #9b59b6, #8e44ad);
@@ -78,6 +82,7 @@
             cursor: pointer;
             padding: 8px 20px;
             margin-left: 10px;
+            width: auto;
         }
         .summary {
             display: grid;
@@ -284,6 +289,17 @@
         .analysis-log pre::-webkit-scrollbar-thumb:hover {
             background: #34495e;
         }
+        /* 时间范围模式标签 */
+        .mode-badge {
+            display: inline-block;
+            background: rgba(52, 152, 219, 0.25);
+            padding: 2px 14px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: #85c1e9;
+            margin-left: 6px;
+            border: 1px solid rgba(52, 152, 219, 0.2);
+        }
         @media (max-width: 768px) {
             body {
                 padding: 10px;
@@ -292,7 +308,7 @@
                 padding: 15px;
             }
             .controls .control-group {
-                min-width: 140px;
+                min-width: 130px;
                 flex: 1 1 auto;
             }
             .summary {
@@ -329,6 +345,14 @@
                 <div class="control-group"><label>抽采地点</label><select id="location-select"></select></div>
                 <div class="control-group"><label>显示模式</label><select id="display-range"><option value="all">全部钻孔(多曲线)</option><option value="single">单孔显示</option></select></div>
                 <div class="control-group"><label>钻孔编号</label><select id="drill-select" disabled></select></div>
+                <!-- ★★★ 新增：时间范围切换 ★★★ -->
+                <div class="control-group" style="min-width:150px;">
+                    <label>时间范围 <span class="mode-badge" id="mode-badge">最近一月</span></label>
+                    <select id="time-range-mode">
+                        <option value="month" selected>最近一月</option>
+                        <option value="all">全部数据</option>
+                    </select>
+                </div>
                 <div class="control-group"><label>开始日期</label><input type="date" id="start-date"></div>
                 <div class="control-group"><label>结束日期</label><input type="date" id="end-date"></div>
                 <button id="apply-btn" class="btn-apply">应用筛选</button>
@@ -446,7 +470,10 @@
                 paramStartPressure: getElement('param-start-pressure'),
                 paramStartFlow: getElement('param-start-flow'),
                 initialConcBox: getElement('initial-conc-box'),
-                analysisContent: getElement('analysis-content')
+                analysisContent: getElement('analysis-content'),
+                // ★★★ 新增：时间范围模式 ★★★
+                timeRangeMode: getElement('time-range-mode'),
+                modeBadge: getElement('mode-badge')
             };
 
             let drills = [];
@@ -618,8 +645,11 @@
                 dom.drillSelect.disabled = (dom.displayRange.value === 'all');
             }
 
+            // ★★★ 核心修改：根据模式设置日期范围（默认最近一月） ★★★
             function setDefaultDateRange() {
                 if (!dom.startDate || !dom.endDate || !dom.dataRangeSpan) return;
+
+                // 收集所有日期
                 let allDates = [];
                 for (let points of drillMap.values()) {
                     allDates.push(...points.map(p => p.date));
@@ -631,29 +661,35 @@
                     return;
                 }
                 allDates.sort();
-                dom.startDate.value = allDates[0];
-                dom.endDate.value = allDates[allDates.length - 1];
-                dom.dataRangeSpan.innerText = `${allDates[0]} 至 ${allDates[allDates.length-1]}`;
-            }
+                const earliest = allDates[0];
+                const latest = allDates[allDates.length - 1];
+                dom.dataRangeSpan.innerText = `${earliest} 至 ${latest}`;
 
-            function renderDrillsTable() {
-                if (!dom.drillsTableBody) return;
-                const tbody = dom.drillsTableBody;
-                tbody.innerHTML = '';
-                for (let d of drills) {
-                    let row = tbody.insertRow();
-                    row.insertCell(0).innerText = d.location;
-                    row.insertCell(1).innerText = d.drillId;
-                    row.insertCell(2).innerText = d.azimuth;
-                    row.insertCell(3).innerText = d.dip;
-                    row.insertCell(4).innerText = d.depth;
-                    row.insertCell(5).innerText = d.startTime;
-                    row.insertCell(6).innerText = d.startConc;
-                    row.insertCell(7).innerText = d.startPressure;
-                    row.insertCell(8).innerText = d.startFlow;
+                // 读取当前模式
+                const mode = dom.timeRangeMode ? dom.timeRangeMode.value : 'month';
+
+                // 更新徽章
+                if (dom.modeBadge) {
+                    dom.modeBadge.textContent = mode === 'month' ? '最近一月' : '全部数据';
                 }
-                if (dom.totalDrillsSpan) dom.totalDrillsSpan.innerText = drills.length;
-                if (dom.totalMeasurementsSpan) dom.totalMeasurementsSpan.innerText = measurements.length;
+
+                if (mode === 'month') {
+                    // 从数据最晚日期往前推30天
+                    const latestDate = new Date(latest);
+                    const thirtyDaysAgo = new Date(latestDate);
+                    thirtyDaysAgo.setDate(latestDate.getDate() - 30);
+                    let startDateStr = thirtyDaysAgo.toISOString().slice(0, 10);
+                    // 如果30天前早于数据最早日期，则从最早日期开始（即显示全部）
+                    if (startDateStr < earliest) {
+                        startDateStr = earliest;
+                    }
+                    dom.startDate.value = startDateStr;
+                    dom.endDate.value = latest;
+                } else {
+                    // 全部数据
+                    dom.startDate.value = earliest;
+                    dom.endDate.value = latest;
+                }
             }
 
             function showDrillParams(location, drillId) {
@@ -718,7 +754,7 @@
             }
 
             // ============================================================
-            //  ★★★ 核心分析函数 - 负压使用全地点日均值 ★★★
+            //  核心分析函数 - 负压使用全地点日均值
             // ============================================================
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
@@ -737,14 +773,12 @@
                 const THRESHOLD_PERCENT = 15;
                 const SKIP_DIFF = 10;
 
-                // ----- 构建该抽采地点每日负压平均值（所有钻孔） -----
-                // 收集该地点所有钻孔的所有检测点
+                // 构建该抽采地点每日负压平均值（所有钻孔）
                 const allPoints = [];
                 for (let item of drillDataPoints) {
                     allPoints.push(...item.filteredPoints);
                 }
-                // 按日期分组计算负压平均值
-                const datePressureMap = new Map(); // date -> {sum, count}
+                const datePressureMap = new Map();
                 for (let p of allPoints) {
                     if (!datePressureMap.has(p.date)) {
                         datePressureMap.set(p.date, { sum: 0, count: 0 });
@@ -758,14 +792,11 @@
                     dateAvgPressure.set(date, entry.sum / entry.count);
                 }
 
-                // 辅助函数：获取某日期的整体负压平均值，若无则返回 null
                 function getOverallPressure(date) {
                     if (dateAvgPressure.has(date)) return dateAvgPressure.get(date);
-                    // 尝试找最近的日期（但为了简化，只返回 exact match）
                     return null;
                 }
 
-                // 辅助：安全百分比
                 function safePercent(newVal, oldVal) {
                     if (oldVal === 0 || oldVal === null || oldVal === undefined || isNaN(oldVal)) return null;
                     if (newVal === null || newVal === undefined || isNaN(newVal)) return null;
@@ -790,16 +821,13 @@
                     downCount = 0;
                 let warningList = [];
 
-                // 统计整体负压变化（基于日均值）
                 let pressureUpCount = 0,
                     pressureDownCount = 0;
                 let pressureChangeSum = 0,
                     pressureChangeCount = 0;
 
-                // 获取所有日期排序
                 const allDates = Array.from(dateAvgPressure.keys()).sort();
 
-                // 对每个钻孔分析
                 for (let item of drillDataPoints) {
                     const drillId = item.drillId;
                     const points = item.filteredPoints;
@@ -810,10 +838,8 @@
                     const latestDate = latest.date;
                     const latestConc = latest.concentration;
                     const latestFlow = latest.flow;
-                    // 最新日期的整体负压
                     const latestOverallPressure = getOverallPressure(latestDate);
 
-                    // 前一日（基于日期，而不是钻孔自身记录）
                     let prevDate = null;
                     let prevOverallPressure = null;
                     if (allDates.length > 0) {
@@ -824,7 +850,6 @@
                         }
                     }
 
-                    // 近三日平均（不含最新，基于日期）
                     let recentDates = [];
                     let recentPressureSum = 0,
                         recentPressureCount = 0;
@@ -843,7 +868,6 @@
                     }
                     let avgOverallPressure = recentPressureCount > 0 ? recentPressureSum / recentPressureCount : null;
 
-                    // 计算浓度变化（与钻孔自身的近三日平均对比）
                     let recentDays = [];
                     if (sorted.length >= 4) {
                         recentDays = sorted.slice(-4, -1);
@@ -859,7 +883,6 @@
                         concDiffVsAvg = latestConc - avgConc;
                     }
 
-                    // 跳过不显著的钻孔
                     if (recentDays.length === 0 || Math.abs(concDiffVsAvg) < SKIP_DIFF) {
                         continue;
                     }
@@ -868,13 +891,10 @@
                     if (concDiffVsAvg > 0) upCount++;
                     else downCount++;
 
-                    // 计算浓度百分比变化
                     let concChangeVsAvg = safePercent(latestConc, avgConc);
-                    // 流量变化
                     let flowChangeVsAvg = safePercent(latestFlow, avgFlow);
                     let flowDiffVsAvg = latestFlow - avgFlow;
 
-                    // 前日浓度对比（钻孔自身）
                     let prevDayDrill = null;
                     if (sorted.length >= 2) {
                         prevDayDrill = sorted[sorted.length - 2];
@@ -890,7 +910,6 @@
                         flowChangeVsPrev = safePercent(latestFlow, prevDayDrill.flow);
                     }
 
-                    // 波动预警（浓度）
                     let isWarning = false;
                     if (concChangeVsAvg !== null && isFinite(concChangeVsAvg) && Math.abs(concChangeVsAvg) > THRESHOLD_PERCENT) {
                         isWarning = true;
@@ -901,7 +920,6 @@
                         });
                     }
 
-                    // ---- 构建详细分析（负压使用整体日均值） ----
                     let detail = '';
                     detail += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
                     detail += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
@@ -909,15 +927,17 @@
                         detail += `   📊 当日全地点平均负压: ${latestOverallPressure.toFixed(2)} KPa\n`;
                     }
 
-                    // 前日对比（浓度、流量用钻孔自身，负压用整体）
                     if (prevDayDrill) {
                         detail += `   📆 前日对比 (${prevDayDrill.date}):\n`;
-                        detail += `      浓度 ${prevDayDrill.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsPrev, concChangeVsPrev, '%')})\n`;
-                        detail += `      流量 ${prevDayDrill.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsPrev, flowChangeVsPrev, 'm³/min')})\n`;
+                        detail +=
+                            `      浓度 ${prevDayDrill.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsPrev, concChangeVsPrev, '%')})\n`;
+                        detail +=
+                            `      流量 ${prevDayDrill.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsPrev, flowChangeVsPrev, 'm³/min')})\n`;
                         if (prevOverallPressure !== null && latestOverallPressure !== null) {
                             let pressDiff = latestOverallPressure - prevOverallPressure;
                             let pressChange = safePercent(latestOverallPressure, prevOverallPressure);
-                            detail += `      全地点负压 ${prevOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
+                            detail +=
+                                `      全地点负压 ${prevOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
                         } else {
                             detail += `      全地点负压: 数据不足\n`;
                         }
@@ -925,16 +945,17 @@
                         detail += `   📆 前日对比: 无前日数据\n`;
                     }
 
-                    // 近三日平均对比（浓度、流量用钻孔自身，负压用整体）
                     if (recentDays.length > 0) {
                         detail += `   📊 近三日平均 (${recentDays.length}日, 不含今日):\n`;
-                        detail += `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsAvg, concChangeVsAvg, '%')})\n`;
-                        detail += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsAvg, flowChangeVsAvg, 'm³/min')})\n`;
+                        detail +=
+                            `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsAvg, concChangeVsAvg, '%')})\n`;
+                        detail +=
+                            `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsAvg, flowChangeVsAvg, 'm³/min')})\n`;
                         if (avgOverallPressure !== null && latestOverallPressure !== null) {
                             let pressDiff = latestOverallPressure - avgOverallPressure;
                             let pressChange = safePercent(latestOverallPressure, avgOverallPressure);
-                            detail += `      全地点负压 ${avgOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
-                            // 收集负压变化统计（基于近三日整体对比）
+                            detail +=
+                                `      全地点负压 ${avgOverallPressure.toFixed(2)} → ${latestOverallPressure.toFixed(2)}  (${formatChange(pressDiff, pressChange, 'KPa')})\n`;
                             if (pressChange !== null && isFinite(pressChange)) {
                                 if (pressChange > 0) pressureUpCount++;
                                 else if (pressChange < 0) pressureDownCount++;
@@ -945,11 +966,10 @@
                             detail += `      全地点负压: 数据不足\n`;
                         }
 
-                        // 波动预警诊断（结合浓度和整体负压）
                         if (isWarning) {
                             let dir = concChangeVsAvg > 0 ? '上升' : '下降';
-                            detail += `   ⚠️ 波动预警: 浓度${dir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
-                            // 使用整体负压变化进行诊断
+                            detail +=
+                                `   ⚠️ 波动预警: 浓度${dir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
                             if (avgOverallPressure !== null && latestOverallPressure !== null) {
                                 let pressChange = safePercent(latestOverallPressure, avgOverallPressure);
                                 if (pressChange !== null && isFinite(pressChange)) {
@@ -957,13 +977,17 @@
                                     const pAbs = Math.abs(pressChange);
                                     const pDiff = latestOverallPressure - avgOverallPressure;
                                     if (concChangeVsAvg < 0 && pressChange > 0) {
-                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能因负压增大导致空气漏入稀释瓦斯。建议检查封孔质量及管路密闭性。\n`;
+                                        detail +=
+                                            `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能因负压增大导致空气漏入稀释瓦斯。建议检查封孔质量及管路密闭性。\n`;
                                     } else if (concChangeVsAvg < 0 && pressChange < 0) {
-                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能抽采负压不足，建议检查管路漏气、泵站运行或钻孔堵塞。\n`;
+                                        detail +=
+                                            `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度下降，可能抽采负压不足，建议检查管路漏气、泵站运行或钻孔堵塞。\n`;
                                     } else if (concChangeVsAvg > 0 && pressChange > 0) {
-                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升，表明煤层瓦斯涌出增加，抽采效果向好，可维持当前参数。\n`;
+                                        detail +=
+                                            `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升，表明煤层瓦斯涌出增加，抽采效果向好，可维持当前参数。\n`;
                                     } else if (concChangeVsAvg > 0 && pressChange < 0) {
-                                        detail += `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升但负压下降，可能因负压降低导致瓦斯解析增加，需关注流量及钻孔稳定性。\n`;
+                                        detail +=
+                                            `      💡 诊断: 全地点负压${pDir} ${pAbs.toFixed(1)}% (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(2)}KPa)，浓度上升但负压下降，可能因负压降低导致瓦斯解析增加，需关注流量及钻孔稳定性。\n`;
                                     }
                                 } else {
                                     detail += `      💡 诊断: 浓度波动较大，但整体负压变化数据不足，建议现场排查。\n`;
@@ -972,14 +996,14 @@
                                 detail += `      💡 诊断: 浓度波动较大，但缺乏整体负压对比数据，建议现场排查。\n`;
                             }
                         } else {
-                            let stableMsg = `   ✅ 浓度稳定: 变化 ${concChangeVsAvg !== null && isFinite(concChangeVsAvg) ? Math.abs(concChangeVsAvg).toFixed(1) + '%' : ''} (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%)，在正常范围内。`;
+                            let stableMsg =
+                                `   ✅ 浓度稳定: 变化 ${concChangeVsAvg !== null && isFinite(concChangeVsAvg) ? Math.abs(concChangeVsAvg).toFixed(1) + '%' : ''} (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%)，在正常范围内。`;
                             detail += stableMsg + '\n';
                         }
                     } else {
                         detail += `   📊 近三日对比: 数据不足 (少于2个历史检测点)\n`;
                     }
 
-                    // 长期趋势（浓度、流量用钻孔自身，负压用整体，但为了简洁，长期趋势只保留浓度和流量）
                     detail += `   ── 长期趋势 ──\n`;
                     const periods = [
                         { name: "一周前", targetDate: oneWeekAgo, label: "环比上周" },
@@ -1021,7 +1045,6 @@
                     significantResults.push(detail);
                 }
 
-                // ---- 总结报告（负压基于整体） ----
                 let summary = '';
                 summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
                 summary += `📋 分析总结\n`;
@@ -1033,11 +1056,11 @@
                     summary += `${significantCount} 个钻孔浓度变化显著（差值≥${SKIP_DIFF}个百分点）。\n`;
                     summary += `• 显著变化方向：上升 ${upCount} 个，下降 ${downCount} 个。\n`;
 
-                    // 整体负压变化统计
                     if (pressureChangeCount > 0) {
                         let avgPressureChange = pressureChangeSum / pressureChangeCount;
                         let pDir = avgPressureChange > 0 ? '上升' : '下降';
-                        summary += `• 全地点负压变化（基于近三日整体日均值）：上升 ${pressureUpCount} 个时段，下降 ${pressureDownCount} 个时段，平均 ${pDir} ${Math.abs(avgPressureChange).toFixed(1)}%。\n`;
+                        summary +=
+                            `• 全地点负压变化（基于近三日整体日均值）：上升 ${pressureUpCount} 个时段，下降 ${pressureDownCount} 个时段，平均 ${pDir} ${Math.abs(avgPressureChange).toFixed(1)}%。\n`;
                     } else {
                         summary += `• 全地点负压变化：有效数据不足，无法统计。\n`;
                     }
@@ -1047,13 +1070,13 @@
                         for (let w of warningList) {
                             let pct = w.changePercent !== null && isFinite(w.changePercent) ? Math.abs(w.changePercent)
                                 .toFixed(1) + '%' : 'N/A';
-                            summary += `   - ${w.id}：变化 ${w.changePercent > 0 ? '↑' : '↓'} ${pct} (绝对值 ${w.diff >= 0 ? '+' : ''}${w.diff.toFixed(1)}个百分点)\n`;
+                            summary +=
+                                `   - ${w.id}：变化 ${w.changePercent > 0 ? '↑' : '↓'} ${pct} (绝对值 ${w.diff >= 0 ? '+' : ''}${w.diff.toFixed(1)}个百分点)\n`;
                         }
                     } else {
                         summary += `• 无钻孔触发波动预警（阈值 ±${THRESHOLD_PERCENT}%）。\n`;
                     }
 
-                    // 结论性建议（结合浓度和整体负压）
                     if (upCount > downCount) {
                         summary += `• 结论：多数钻孔浓度呈上升趋势，抽采效果向好。`;
                         if (pressureUpCount > pressureDownCount) {
@@ -1073,12 +1096,12 @@
                             summary += ` 整体负压变化不明显，建议排查钻孔堵塞或煤层透气性变化。\n`;
                         }
                     } else {
-                        summary += `• 结论：上升与下降钻孔数量相当，建议重点关注波动预警钻孔，结合整体负压变化进行针对性排查。\n`;
+                        summary +=
+                            `• 结论：上升与下降钻孔数量相当，建议重点关注波动预警钻孔，结合整体负压变化进行针对性排查。\n`;
                     }
                 }
                 summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
 
-                // ---- 组装最终输出 ----
                 let output = '';
                 output += `📊 分析基准：${todayStr}（自动匹配实际最新检测日）\n`;
                 output += `📍 抽采地点：${location}\n`;
@@ -1100,7 +1123,7 @@
             }
 
             // ============================================================
-            //  ★★★ 以下为原有渲染函数（未修改） ★★★
+            //  渲染函数
             // ============================================================
 
             function renderCharts(drillDataPoints) {
@@ -1433,6 +1456,7 @@
 
             function bindEvents() {
                 const refresh = () => refreshAll();
+
                 if (dom.locationSelect) dom.locationSelect.addEventListener('change', () => {
                     updateDrillSelect(dom.locationSelect.value);
                     refresh();
@@ -1444,6 +1468,17 @@
                 });
                 if (dom.drillSelect) dom.drillSelect.addEventListener('change', refresh);
                 if (dom.applyBtn) dom.applyBtn.addEventListener('click', refresh);
+
+                // ★★★ 新增：时间范围模式切换 ★★★
+                if (dom.timeRangeMode) {
+                    dom.timeRangeMode.addEventListener('change', function() {
+                        // 根据模式自动设置日期范围
+                        setDefaultDateRange();
+                        // 刷新所有图表和数据
+                        refreshAll();
+                    });
+                }
+
                 if (dom.showRecentBtn) dom.showRecentBtn.addEventListener('click', () => {
                     currentShowHistory = false;
                     refreshAll();
@@ -1474,6 +1509,7 @@
                     drillMap = buildDrillMap();
                     updateLocationSelect();
                     updateDrillSelect(dom.locationSelect ? dom.locationSelect.value : '');
+                    // ★★★ 调用 setDefaultDateRange 设置默认日期范围（最近一月） ★★★
                     setDefaultDateRange();
                     renderDrillsTable();
                     bindEvents();
@@ -1498,6 +1534,26 @@
                         if (dom.statusText) dom.statusText.innerText = '系统错误';
                     }, 2000);
                 }
+            }
+
+            function renderDrillsTable() {
+                if (!dom.drillsTableBody) return;
+                const tbody = dom.drillsTableBody;
+                tbody.innerHTML = '';
+                for (let d of drills) {
+                    let row = tbody.insertRow();
+                    row.insertCell(0).innerText = d.location;
+                    row.insertCell(1).innerText = d.drillId;
+                    row.insertCell(2).innerText = d.azimuth;
+                    row.insertCell(3).innerText = d.dip;
+                    row.insertCell(4).innerText = d.depth;
+                    row.insertCell(5).innerText = d.startTime;
+                    row.insertCell(6).innerText = d.startConc;
+                    row.insertCell(7).innerText = d.startPressure;
+                    row.insertCell(8).innerText = d.startFlow;
+                }
+                if (dom.totalDrillsSpan) dom.totalDrillsSpan.innerText = drills.length;
+                if (dom.totalMeasurementsSpan) dom.totalMeasurementsSpan.innerText = measurements.length;
             }
 
             if (typeof Chart === 'undefined') {
