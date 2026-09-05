@@ -64,6 +64,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            user-select: none;
         }
         .nav-tab:hover {
             background: rgba(52, 152, 219, 0.2);
@@ -249,13 +250,8 @@
         /* ===== 图表 ===== */
         .charts-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;  /* 改为单列纵向排列 */
             gap: 25px;
-        }
-        @media (max-width: 900px) {
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
         }
         .chart-container {
             height: 380px;
@@ -637,7 +633,7 @@
         </div>
 
         <!-- ============================================================ -->
-        <!-- ===== 页面2：气体成分分析 ===== -->
+        <!-- ===== 页面2：气体成分分析（纵向图表） ===== -->
         <!-- ============================================================ -->
         <div class="page-panel" id="page-gas">
             <div class="card no-print">
@@ -696,6 +692,7 @@
                 </div>
             </div>
 
+            <!-- 纵向排列的两张图表 -->
             <div class="charts-grid">
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
@@ -744,6 +741,46 @@
     </div>
 
     <script>
+        // ===================================================================
+        // 全局导航切换（统一处理）
+        // ===================================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabs = document.querySelectorAll('.nav-tab');
+            const panels = {
+                drill: document.getElementById('page-drill'),
+                gas: document.getElementById('page-gas')
+            };
+
+            function switchPage(page) {
+                // 更新标签样式
+                tabs.forEach(tab => {
+                    tab.classList.toggle('active', tab.dataset.page === page);
+                });
+                // 显示对应面板
+                Object.keys(panels).forEach(key => {
+                    panels[key].classList.toggle('active', key === page);
+                });
+                // 如果切换到气体页面，触发刷新（若气体模块已初始化）
+                if (page === 'gas' && typeof window._gasRefresh === 'function') {
+                    window._gasRefresh();
+                }
+            }
+
+            // 绑定点击事件
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function(e) {
+                    const page = this.dataset.page;
+                    if (page) switchPage(page);
+                });
+            });
+
+            // 默认激活钻孔页面
+            switchPage('drill');
+
+            // 暴露刷新函数供气体模块调用
+            window._switchPage = switchPage;
+        });
+
         // ===================================================================
         // 第一部分：钻孔抽采数据分析（完整功能）
         // ===================================================================
@@ -1083,9 +1120,7 @@
                 return str;
             }
 
-            // ============================================================
-            // 核心分析函数（负压·流量对浓度影响，流量阈值0.5）
-            // ============================================================
+            // 钻孔分析生成函数（含负压·流量影响，流量阈值0.5）
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
                     return `📊 当前筛选条件：地点=${location}，模式=${mode === 'single' ? `单孔 ${selectedDrill}` : '全部钻孔'}\n暂无检测数据，无法分析。`;
@@ -1865,7 +1900,6 @@
                 }
             }
 
-            // 检查Chart.js
             if (typeof Chart !== 'undefined') {
                 Chart.defaults.plugins.tooltip.titleFontSize = 16;
                 Chart.defaults.plugins.tooltip.bodyFontSize = 16;
@@ -1877,7 +1911,7 @@
         })();
 
         // ===================================================================
-        // 第二部分：气体成分分析（无内置数据，仅从cfdata.xlsx加载）
+        // 第二部分：气体成分分析（无内置数据，仅从cfdata.xlsx加载，纵向图表）
         // ===================================================================
         (function gasModule() {
             const GAS_NAMES = ['N2', 'CH4', 'C2H2', 'O2', 'C2H6', 'CO', 'C2H4', 'CO2'];
@@ -2011,7 +2045,6 @@
                     dom.gasDataStatus.textContent = '加载失败: ' + err.message;
                     dom.gasDataStatus.style.color = '#e74c3c';
                     console.error(err);
-                    // 无内置数据，仅显示提示
                     dom.gasAnalysisContent.innerText = '❌ 无法加载 cfdata.xlsx，请检查文件是否存在且格式正确。\n错误信息：' + err.message;
                     return false;
                 }
@@ -2123,6 +2156,8 @@
                 renderGasTable(data);
                 renderGasAnalysis(data);
             }
+            // 暴露刷新函数给全局切换
+            window._gasRefresh = refreshGasAll;
 
             function updateGasStats(data) {
                 if (data.length === 0) {
@@ -2463,15 +2498,6 @@
                 dom.gasExportCsv.addEventListener('click', exportCSV);
                 dom.gasPrint.addEventListener('click', printPage);
                 dom.gasExportReport.addEventListener('click', exportReport);
-
-                // 导航切换：气体页面激活时刷新
-                document.querySelectorAll('.nav-tab').forEach(tab => {
-                    tab.addEventListener('click', function() {
-                        if (this.dataset.page === 'gas') {
-                            setTimeout(refreshGasAll, 100);
-                        }
-                    });
-                });
             }
 
             // 初始化气体模块
