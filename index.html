@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js">
     </script>
     <style>
-        /* ===== 全部样式 ===== */
+        /* ===== 全部样式（与之前完全一致） ===== */
         * {
             margin: 0;
             padding: 0;
@@ -1922,7 +1922,7 @@
         })();
 
         // ===================================================================
-        // 第二部分：气体成分分析（详细按循环，粗略按小时）
+        // 第二部分：气体成分分析（详细按循环，粗略按小时，报告氮气变化小于1%不分析）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -2571,7 +2571,7 @@
                 tbody.innerHTML = html;
             }
 
-            // ---- 分析报告 ----
+            // ---- 分析报告（修改：氮气变化小于1%时不纳入分析） ----
             function renderGasAnalysis(data) {
                 const container = dom.gasAnalysisContent;
                 if (!container) return;
@@ -2640,19 +2640,39 @@
                     reportLines.push(`      O₂变化：${first.O2.toFixed(5)}% → ${last.O2.toFixed(5)}% (${o2Diff > 0 ? '+' : ''}${o2Diff.toFixed(5)}%, ${o2Pct > 0 ? '+' : ''}${o2Pct.toFixed(1)}%)`);
                     reportLines.push(`      CO变化：${first.CO.toFixed(2)}ppm → ${last.CO.toFixed(2)}ppm (${coDiff > 0 ? '+' : ''}${coDiff.toFixed(2)}ppm, ${coPct > 0 ? '+' : ''}${coPct.toFixed(1)}%)`);
 
-                    if (n2Diff > 0 && coDiff < 0) {
-                        reportLines.push(`      ✅ 诊断：氮气注入量增加，CO浓度下降，表明注氮有效稀释或惰化了CO，抑制了氧化。`);
-                    } else if (n2Diff > 0 && coDiff > 0) {
-                        reportLines.push(`      ⚠️ 诊断：氮气注入增加但CO仍上升，可能氮气未能有效覆盖CO源，或存在其它CO来源（如煤体氧化）。`);
-                    } else if (n2Diff < 0 && coDiff > 0) {
-                        reportLines.push(`      ⚠️ 诊断：氮气注入减少或中断，CO上升，表明氮气对CO有显著抑制效果，需恢复注氮。`);
-                    } else if (o2Diff < 0 && coDiff < 0) {
-                        reportLines.push(`      ✅ 诊断：氧气下降伴随CO下降，表明采空区惰化效果良好，氧化反应受抑制。`);
-                    } else if (o2Diff > 0 && coDiff > 0) {
-                        reportLines.push(`      ⚠️ 诊断：氧气上升伴随CO上升，可能通风量增大导致采空区漏风，建议检查密闭性。`);
+                    // ---- 修改诊断逻辑：氮气变化小于1%时不纳入分析 ----
+                    const n2Significant = Math.abs(n2Diff) > 1; // 氮气变化绝对值大于1%视为显著
+
+                    let diagnosis = '';
+                    if (n2Significant) {
+                        // 氮气变化显著，原有逻辑
+                        if (n2Diff > 0 && coDiff < 0) {
+                            diagnosis = `✅ 诊断：氮气注入量增加（+${n2Diff.toFixed(5)}%），CO浓度下降，表明注氮有效稀释或惰化了CO，抑制了氧化。`;
+                        } else if (n2Diff > 0 && coDiff > 0) {
+                            diagnosis = `⚠️ 诊断：氮气注入增加（+${n2Diff.toFixed(5)}%）但CO仍上升，可能氮气未能有效覆盖CO源，或存在其它CO来源（如煤体氧化）。`;
+                        } else if (n2Diff < 0 && coDiff > 0) {
+                            diagnosis = `⚠️ 诊断：氮气注入减少或中断（${n2Diff.toFixed(5)}%），CO上升，表明氮气对CO有显著抑制效果，需恢复注氮。`;
+                        } else if (n2Diff < 0 && coDiff < 0) {
+                            diagnosis = `ℹ️ 诊断：氮气下降（${n2Diff.toFixed(5)}%）伴随CO下降，可能其他因素（如通风）主导了CO变化。`;
+                        } else {
+                            diagnosis = `ℹ️ 诊断：氮气变化与CO变化无明显关联。`;
+                        }
                     } else {
-                        reportLines.push(`      ℹ️ 诊断：氮气、氧气与CO变化无明显关联，需结合现场进一步排查。`);
+                        // 氮气变化不显著，忽略氮气影响，只根据氧气变化分析
+                        diagnosis = `氮气变化较小（${n2Diff.toFixed(5)}%），不纳入原因分析。`;
+                        if (o2Diff < 0 && coDiff < 0) {
+                            diagnosis += ` 同时氧气下降（${o2Diff.toFixed(5)}%），CO下降，表明采空区惰化效果良好，氧化反应受抑制。`;
+                        } else if (o2Diff > 0 && coDiff > 0) {
+                            diagnosis += ` 同时氧气上升（${o2Diff.toFixed(5)}%），CO上升，可能通风量增大导致采空区漏风，建议检查密闭性。`;
+                        } else if (o2Diff < 0 && coDiff > 0) {
+                            diagnosis += ` 氧气下降但CO上升，可能煤体自热或其它CO来源，需现场排查。`;
+                        } else if (o2Diff > 0 && coDiff < 0) {
+                            diagnosis += ` 氧气上升但CO下降，可能稀释或其它因素，需结合现场情况。`;
+                        } else {
+                            diagnosis += ` 氧气与CO变化无明显关联，需结合现场进一步排查。`;
+                        }
                     }
+                    reportLines.push(`      ${diagnosis}`);
                     reportLines.push('');
                 }
 
