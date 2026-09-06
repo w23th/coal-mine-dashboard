@@ -510,6 +510,13 @@
                 height: auto !important;
             }
         }
+        /* 隐藏的切换控件 */
+        .detail-toggle {
+            display: none;
+        }
+        .detail-toggle.visible {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -667,6 +674,14 @@
                     <button class="btn-apply" id="gas-apply-btn">应用筛选</button>
                     <button class="btn-success" id="gas-export-csv"><i class="fas fa-file-csv"></i> 导出CSV</button>
                     <button class="btn-warning" id="gas-print"><i class="fas fa-print"></i> 打印</button>
+                </div>
+                <!-- 详细/粗略切换（默认隐藏） -->
+                <div class="control-group detail-toggle" id="gas-detail-toggle-group" style="min-width:120px; flex:0 1 auto; margin-top:10px;">
+                    <label>显示模式</label>
+                    <select id="gas-detail-mode">
+                        <option value="detail">详细（全部循环）</option>
+                        <option value="hourly">粗略（按小时）</option>
+                    </select>
                 </div>
             </div>
             <div class="card">
@@ -1907,7 +1922,7 @@
         })();
 
         // ===================================================================
-        // 第二部分：气体成分分析（四组图表）
+        // 第二部分：气体成分分析（四组图表 + 详细/粗略切换）
         // ===================================================================
         (function gasModule() {
             // 气体定义
@@ -1923,7 +1938,7 @@
                 CO2: '二氧化碳'
             };
 
-            // 四组分组（按新要求）
+            // 四组分组
             const GROUP1 = ['CO']; // ppm
             const GROUP2 = ['O2', 'N2']; // %
             const GROUP3 = ['CH4', 'CO2']; // %
@@ -1976,6 +1991,8 @@
                 gasExportCsv: document.getElementById('gas-export-csv'),
                 gasPrint: document.getElementById('gas-print'),
                 gasExportReport: document.getElementById('gas-export-report'),
+                gasDetailToggleGroup: document.getElementById('gas-detail-toggle-group'),
+                gasDetailMode: document.getElementById('gas-detail-mode'),
             };
 
             let gasRawData = [];
@@ -2173,6 +2190,28 @@
                 return { start, end };
             }
 
+            // ---- 按小时聚合（粗略模式） ----
+            function aggregateByHour(data) {
+                // 按地点 + 日期 + 小时分组，取CO最高的记录
+                const hourMap = new Map();
+                for (let row of data) {
+                    // 提取小时 (从datetime中)
+                    const hour = row.datetime.substring(11, 13); // "HH"
+                    const key = row.location + '|' + row.date + '|' + hour;
+                    if (!hourMap.has(key)) {
+                        hourMap.set(key, row);
+                    } else {
+                        const existing = hourMap.get(key);
+                        if (row.CO > existing.CO) {
+                            hourMap.set(key, row);
+                        }
+                    }
+                }
+                let result = Array.from(hourMap.values());
+                result.sort((a, b) => a._dateObj - b._dateObj);
+                return result;
+            }
+
             // ---- 数据筛选与聚合 ----
             function getFilteredData() {
                 const location = dom.gasLocationSelect.value;
@@ -2210,17 +2249,46 @@
 
                 filtered.sort((a, b) => a._dateObj - b._dateObj);
 
-                const isMultiDay = (range.start !== range.end && range.start !== '' && range.end !== '');
-                if (mode === 'week' || mode === 'month' || mode === 'all') {
-                    return aggregateByDay(filtered, 'dateOnly');
-                } else if (isMultiDay) {
-                    return aggregateByDay(filtered, 'dateCycle');
+                // 判断是否启用详细/粗略
+                const isSingleDay = (range.start === range.end && range.start !== '');
+                const isTwoDays = (() => {
+                    if (!range.start || !range.end) return false;
+                    const d1 = new Date(range.start);
+                    const d2 = new Date(range.end);
+                    const diff = (d2 - d1) / (1000 * 60 * 60 * 24);
+                    return diff <= 2 && diff >= 0;
+                })();
+                const showDetailToggle = isSingleDay || isTwoDays;
+                const detailToggleGroup = dom.gasDetailToggleGroup;
+                if (showDetailToggle) {
+                    detailToggleGroup.classList.add('visible');
                 } else {
-                    return filtered;
+                    detailToggleGroup.classList.remove('visible');
+                    // 强制设为详细模式
+                    dom.gasDetailMode.value = 'detail';
+                }
+
+                const detailMode = dom.gasDetailMode.value;
+
+                // 聚合逻辑：
+                // - 如果是多天（week/month/all/custom>2天），按日聚合（取每天CO最高）
+                // - 如果是当天或<=2天，根据detailMode：detail保留所有数据，hourly按小时聚合
+                const isMultiDay = (range.start !== range.end && range.start !== '' && range.end !== '' && !isSingleDay && !
+                    isTwoDays);
+                if (mode === 'week' || mode === 'month' || mode === 'all' || isMultiDay) {
+                    // 按日聚合
+                    return aggregateByDay(filtered);
+                } else {
+                    // 当天或<=2天
+                    if (detailMode === 'hourly') {
+                        return aggregateByHour(filtered);
+                    } else {
+                        return filtered; // 详细
+                    }
                 }
             }
 
-            function aggregateByDay(data, labelMode) {
+            function aggregateByDay(data) {
                 const dayMap = new Map();
                 for (let row of data) {
                     const key = row.location + '|' + row.date;
@@ -2293,11 +2361,18 @@
                 const isAll = (dom.gasLocationSelect.value === '__ALL__');
                 const isToday = (mode === 'today') || (dom.gasStartDate.value === dom.gasEndDate.value && dom.gasStartDate
                 .value !== '');
+                const detailMode = dom.gasDetailMode.value;
 
-                dom.gasChartModeBadge1.textContent = modeLabel;
-                dom.gasChartModeBadge2.textContent = modeLabel;
-                dom.gasChartModeBadge3.textContent = modeLabel;
-                dom.gasChartModeBadge4.textContent = modeLabel;
+                let displayModeLabel = modeLabel;
+                if (isToday || (dom.gasStartDate.value && dom.gasEndDate.value && new Date(dom.gasEndDate.value) - new Date(dom
+                        .gasStartDate.value) <= 2 * 24 * 60 * 60 * 1000)) {
+                    displayModeLabel += ' (' + (detailMode === 'hourly' ? '粗略-按小时' : '详细-全部循环') + ')';
+                }
+
+                dom.gasChartModeBadge1.textContent = displayModeLabel;
+                dom.gasChartModeBadge2.textContent = displayModeLabel;
+                dom.gasChartModeBadge3.textContent = displayModeLabel;
+                dom.gasChartModeBadge4.textContent = displayModeLabel;
 
                 if (data.length === 0) {
                     dom.gasChartLegend1.innerHTML = '';
@@ -2319,14 +2394,41 @@
 
                 // 构建横坐标标签
                 let labels = [];
-                if (isToday && isAll) {
+                const isSingleDay = (dom.gasStartDate.value === dom.gasEndDate.value && dom.gasStartDate.value !== '');
+                const isTwoDays = (() => {
+                    if (!dom.gasStartDate.value || !dom.gasEndDate.value) return false;
+                    const d1 = new Date(dom.gasStartDate.value);
+                    const d2 = new Date(dom.gasEndDate.value);
+                    const diff = (d2 - d1) / (1000 * 60 * 60 * 24);
+                    return diff <= 2 && diff >= 0;
+                })();
+                const showDetailToggle = isSingleDay || isTwoDays;
+
+                // 判断是否为按小时聚合（粗略模式）
+                const isHourly = (showDetailToggle && dom.gasDetailMode.value === 'hourly');
+
+                if (isAll && isSingleDay && !isHourly) {
+                    // 全部地点 + 当天 + 详细：显示循环次数
                     labels = data.map(r => `第${r.cycle}循环`);
-                } else if (isToday && !isAll) {
+                } else if (isAll && isSingleDay && isHourly) {
+                    // 全部地点 + 当天 + 粗略：显示小时
+                    labels = data.map(r => r.datetime.substring(11, 16)); // "HH:MM"
+                } else if (!isAll && isSingleDay && !isHourly) {
+                    // 单地点 + 当天 + 详细：显示时间
                     labels = data.map(r => r.time);
+                } else if (!isAll && isSingleDay && isHourly) {
+                    // 单地点 + 当天 + 粗略：显示小时
+                    labels = data.map(r => r.datetime.substring(11, 16));
                 } else if (mode === 'week' || mode === 'month' || mode === 'all') {
+                    // 预设多天：显示日期
                     labels = data.map(r => r.date);
                 } else {
-                    labels = data.map(r => `${r.date} 第${r.cycle}循环`);
+                    // 自定义多天：显示日期+循环次数（如果是详细）或日期+小时（粗略）
+                    if (isHourly) {
+                        labels = data.map(r => `${r.date} ${r.datetime.substring(11,16)}`);
+                    } else {
+                        labels = data.map(r => `${r.date} 第${r.cycle}循环`);
+                    }
                 }
 
                 function buildDatasets(group) {
@@ -2397,7 +2499,15 @@
                             },
                             scales: {
                                 y: { title: { display: true, text: unitSuffix }, beginAtZero: true },
-                                x: { ticks: { maxTicksLimit: 20, autoSkip: true } }
+                                x: {
+                                    ticks: {
+                                        maxTicksLimit: 50, // 增大限制，显示更多标签
+                                        maxRotation: 45,
+                                        minRotation: 0,
+                                        autoSkip: true,
+                                        font: { size: 10 }
+                                    }
+                                }
                             }
                         }
                     });
@@ -2659,6 +2769,9 @@
                     }
                     refreshGasAll();
                 });
+
+                // 详细/粗略切换
+                dom.gasDetailMode.addEventListener('change', refreshGasAll);
 
                 dom.gasShowRecent.addEventListener('click', function() {
                     gasShowHistoryMode = false;
