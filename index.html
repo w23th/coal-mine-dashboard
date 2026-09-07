@@ -3103,4 +3103,32 @@
                 dom.gasExportReport.addEventListener('click', exportReport);
 
                 dom.gasStartDate.addEventListener('change', function() {
-                    dom.gasTimeRange
+                    dom.gasTimeRange.value = 'custom';
+                });
+                dom.gasEndDate.addEventListener('change', function() {
+                    dom.gasTimeRange.value = 'custom';
+                });
+            }
+
+            async function initGas() {
+                await loadGasDataFromFile();
+                bindGasEvents();
+                const today = new Date().toISOString().slice(0, 10);
+                const dates = gasRawData.map(r => r.date).sort();
+                let target = today;
+                if (!dates.includes(today) && dates.length > 0) {
+                    target = dates[dates.length - 1];
+                }
+                dom.gasStartDate.value = target;
+                dom.gasEndDate.value = target;
+                dom.gasTimeRange.value = 'today';
+                refreshGasAll();
+            }
+
+            if (document.getElementById('gas-chart-canvas1')) {
+                setTimeout(initGas, 300);
+            }
+        })();
+    </script>
+</body>
+</html>
