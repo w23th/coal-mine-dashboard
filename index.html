@@ -2128,9 +2128,15 @@
         })();
 
         // ===================================================================
-        // 3. 气体成分分析（五组图表 + 完整分析报告 + 修复时间显示）
+        // 3. 气体成分分析（五组图表，氮气/氧气纵坐标动态调整，修复常量赋值错误）
         // ===================================================================
         (function gasModule() {
+            // ---- 本地日期（避免 UTC toISOString 造成凌晨日期取错） ----
+            function localTodayStr(d) {
+                const t = d || new Date();
+                return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+            }
+
             // ---- 气体定义 ----
             const GAS_NAMES = ['N2', 'CH4', 'C2H2', 'O2', 'C2H6', 'CO', 'C2H4', 'CO2'];
             const GAS_LABELS = {
@@ -2403,7 +2409,7 @@
             }
 
             function setDefaultDates() {
-                const today = new Date().toISOString().slice(0, 10);
+                const today = localTodayStr();
                 const dates = gasRawData.map(r => r.date).sort();
                 let target = today;
                 if (!dates.includes(today) && dates.length > 0) {
@@ -2417,7 +2423,7 @@
             // ---- 日期范围 ----
             function getDateRangeFromMode(mode, startDate, endDate) {
                 const now = new Date();
-                const today = now.toISOString().slice(0, 10);
+                const today = localTodayStr(now);
                 let start, end;
                 switch (mode) {
                     case 'today':
@@ -2427,19 +2433,19 @@
                         end = today;
                         const threeDaysAgo = new Date(now);
                         threeDaysAgo.setDate(now.getDate() - 2);
-                        start = threeDaysAgo.toISOString().slice(0, 10);
+                        start = localTodayStr(threeDaysAgo);
                         break;
                     case 'week':
                         end = today;
                         const weekAgo = new Date(now);
                         weekAgo.setDate(now.getDate() - 6);
-                        start = weekAgo.toISOString().slice(0, 10);
+                        start = localTodayStr(weekAgo);
                         break;
                     case 'month':
                         end = today;
                         const monthAgo = new Date(now);
                         monthAgo.setDate(now.getDate() - 29);
-                        start = monthAgo.toISOString().slice(0, 10);
+                        start = localTodayStr(monthAgo);
                         break;
                     case 'all':
                         start = '';
@@ -2480,7 +2486,7 @@
                 let endDate = dom.gasEndDate.value;
 
                 if (mode === 'custom' && (!startDate || !endDate)) {
-                    const today = new Date().toISOString().slice(0, 10);
+                    const today = localTodayStr();
                     startDate = startDate || today;
                     endDate = endDate || today;
                 }
@@ -2591,7 +2597,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
-            // ---- 图表渲染（修复时间显示错误） ----
+            // ---- 图表渲染（五组，氮气/氧气纵坐标动态调整） ----
             function renderGasCharts(data) {
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
@@ -2679,8 +2685,9 @@
                     locationDashMap[loc] = LOCATION_DASH_STYLES[idx % LOCATION_DASH_STYLES.length];
                 });
 
-                // 构建标签（横坐标）
+                // 构建标签：跨天/跨地点时循环号会重复，用 (date, cycle) 唯一化
                 let labels = [];
+                let labelKeys = [];
                 const isHourlyMode = (detailMode === 'hourly' && dom.gasDetailToggleGroup.classList.contains('visible'));
                 if (isHourlyMode) {
                     const hourSet = new Set();
@@ -2690,13 +2697,20 @@
                     }
                     labels = Array.from(hourSet).sort();
                 } else {
-                    // 详细模式：按循环次数，但必须保证每个地点循环次数与数据对应
-                    // 横坐标使用所有地点中循环次数的并集（去重排序）
-                    const allCycles = new Set();
+                    const keySet = new Set();
                     for (let r of data) {
-                        allCycles.add(r.cycle);
+                        const k = r.date + '#' + r.cycle;
+                        if (!keySet.has(k)) {
+                            keySet.add(k);
+                            labelKeys.push({ date: r.date, cycle: r.cycle });
+                        }
                     }
-                    labels = Array.from(allCycles).sort((a, b) => a - b).map(c => c.toString());
+                    labelKeys.sort((a, b) => {
+                        if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+                        return a.cycle - b.cycle;
+                    });
+                    const singleDay = labelKeys.length > 0 && labelKeys.every(k => k.date === labelKeys[0].date);
+                    labels = labelKeys.map(k => singleDay ? String(k.cycle) : (k.date + ' #' + k.cycle));
                 }
 
                 // ---- 构建数据集 ----
@@ -2713,9 +2727,10 @@
                                     return row ? row[gas] : null;
                                 });
                             } else {
-                                gasValues = labels.map(cycleStr => {
-                                    const cycle = parseInt(cycleStr);
-                                    const row = locData.find(r => r.cycle === cycle);
+                                gasValues = labels.map((label, idx) => {
+                                    const k = labelKeys[idx];
+                                    if (!k) return null;
+                                    const row = locData.find(r => r.date === k.date && r.cycle === k.cycle);
                                     return row ? row[gas] : null;
                                 });
                             }
@@ -2743,11 +2758,11 @@
                     return datasets;
                 }
 
-                // ---- 渲染图表（修复 tooltip 时间） ----
+                // ---- 渲染图表（修复常量赋值错误：使用 let yScale） ----
                 function renderChart(canvasId, group, unitSuffix, decimalPlaces, minY, maxY) {
                     const ctx = document.getElementById(canvasId).getContext('2d');
                     const datasets = buildDatasets(group);
-                    let yScale;
+                    let yScale; // 使用 let 而非 const
                     if (minY !== undefined && maxY !== undefined) {
                         yScale = { title: { display: true, text: unitSuffix }, min: minY, max: maxY };
                     } else {
@@ -2763,21 +2778,20 @@
                                 legend: { display: false },
                                 tooltip: {
                                     callbacks: {
-                                        title: function(context) {
-                                            if (!context || !context.length) return '';
-                                            const item = context[0];
-                                            const dataset = item.dataset;
-                                            const index = item.dataIndex;
+                                        title: function(items) {
+                                            if (!items.length) return '';
+                                            const index = items[0].dataIndex;
                                             const label = labels[index];
-                                            const location = dataset._location;
-                                            if (!location) return label;
+                                            const dataset = items[0].dataset;
+                                            const loc = dataset ? dataset._location : null;
                                             let row = null;
                                             if (isHourlyMode) {
-                                                row = data.find(r => r.location === location && r.datetime.substring(0, 16) ===
-                                                    label);
+                                                row = data.find(r => r.location === loc && r.datetime.substring(0, 16) === label);
                                             } else {
-                                                const cycle = parseInt(label);
-                                                row = data.find(r => r.location === location && r.cycle === cycle);
+                                                const k = labelKeys[index];
+                                                if (k) {
+                                                    row = data.find(r => r.location === loc && r.date === k.date && r.cycle === k.cycle);
+                                                }
                                             }
                                             if (row) return row.datetime || label;
                                             return label;
@@ -2880,430 +2894,430 @@
                 tbody.innerHTML = html;
             }
 
-            // ---- 分析报告（完整版） ----
+            // ---- 分析报告 ----
             function renderGasAnalysis(data) {
-                const container = dom.gasAnalysisContent;
-                if (!container) return;
+    const container = dom.gasAnalysisContent;
+    if (!container) return;
 
-                if (!data || data.length === 0) {
-                    container.innerText = '【提示】当前筛选条件下无有效监测数据，请调整筛选条件后重新生成分析报告。';
-                    return;
-                }
+    if (!data || data.length === 0) {
+        container.innerText = '【提示】当前筛选条件下无有效监测数据，请调整筛选条件后重新生成分析报告。';
+        return;
+    }
 
-                // ========== 基础信息获取 ==========
-                const location = dom.gasLocationSelect.value === '__ALL__' ? '全部监测地点' : dom.gasLocationSelect.value;
-                const mode = dom.gasTimeRange.value;
-                const modeLabel = {
-                    today: '当日',
-                    three_days: '近三日',
-                    week: '近一周',
-                    month: '近一月',
-                    all: '所有日期',
-                    custom: '自定义时间段'
-                } [mode] || '';
+    // ========== 基础信息获取 ==========
+    const location = dom.gasLocationSelect.value === '__ALL__' ? '全部监测地点' : dom.gasLocationSelect.value;
+    const mode = dom.gasTimeRange.value;
+    const modeLabel = {
+        today: '当日',
+        three_days: '近三日',
+        week: '近一周',
+        month: '近一月',
+        all: '所有日期',
+        custom: '自定义时间段'
+    }[mode] || '';
 
-                // 按时间排序
-                const sorted = [...data].sort((a, b) => a._dateObj - b._dateObj);
-                const latest = sorted[sorted.length - 1];
-                if (!latest) {
-                    container.innerText = '【提示】无有效数据可供分析。';
-                    return;
-                }
+    // 按时间排序
+    const sorted = [...data].sort((a, b) => a._dateObj - b._dateObj);
+    const latest = sorted[sorted.length - 1];
+    if (!latest) {
+        container.innerText = '【提示】无有效数据可供分析。';
+        return;
+    }
 
-                const locs = [...new Set(data.map(r => r.location))];
-                const reportLines = [];
+    const locs = [...new Set(data.map(r => r.location))];
+    const reportLines = [];
 
-                // ========== 报告头部 ==========
-                reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
-                reportLines.push('║                    12803综采工作面束管监测气体成分分析报告                  ║');
-                reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
-                reportLines.push('');
-                reportLines.push(`【报告基本信息】`);
-                reportLines.push(`  监测地点范围：${location}`);
-                reportLines.push(`  分析时间范围：${modeLabel}`);
-                reportLines.push(`  最新数据时间：${latest.datetime || '未知'}`);
-                reportLines.push(`  有效数据点数：${data.length} 条`);
-                reportLines.push(`  数据来源：${[...new Set(data.map(r => r._sourceSheet || ''))].filter(s => s).join('、') || '束管监测系统'}`);
-                reportLines.push(`  报告生成时间：${new Date().toLocaleString('zh-CN')}`);
-                reportLines.push('');
+    // ========== 报告头部 ==========
+    reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
+    reportLines.push('║                    12803综采工作面束管监测气体成分分析报告                  ║');
+    reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
+    reportLines.push('');
+    reportLines.push(`【报告基本信息】`);
+    reportLines.push(`  监测地点范围：${location}`);
+    reportLines.push(`  分析时间范围：${modeLabel}`);
+    reportLines.push(`  最新数据时间（监测数据最后一条）：${latest.datetime || '未知'}`);
+    reportLines.push(`  有效数据点数：${data.length} 条`);
+    reportLines.push(`  数据来源：${[...new Set(data.map(r => r._sourceSheet || ''))].filter(s => s).join('、') || '束管监测系统'}`);
+    reportLines.push(`  报告生成时间（系统当前时刻，非检测时间）：${new Date().toLocaleString('zh-CN')}`);
+    reportLines.push('');
 
-                // ========== 一、现场工程背景与分析机理说明 ==========
-                reportLines.push('━'.repeat(80));
-                reportLines.push('【一、现场工程背景与气体运移分析机理】');
-                reportLines.push('━'.repeat(80));
-                reportLines.push('');
-                reportLines.push('  1. 工程背景：');
-                reportLines.push('     12803综采工作面运输巷采用沿空留巷布置，下隅角左侧紧邻12802已封闭采空区。');
-                reportLines.push('     受相邻工作面及本工作面采动应力叠加影响，沿空帮、上下隅角及顶板围岩裂隙高度发育，');
-                reportLines.push('     形成贯通性漏风通道。工作面采用U型一进一回通风系统，12802工作面已回采结束，');
-                reportLines.push('     其回风巷停采段已施工永久密闭，采空区处于封闭状态。');
-                reportLines.push('');
-                reportLines.push('  2. 漏风与气体运移机理：');
-                reportLines.push('     受采动裂隙贯通影响，新鲜风流可通过围岩裂隙、上下隅角松散煤体通道，向12803生产');
-                reportLines.push('     采空区及12802封闭采空区发生持续性漏风；同时采空区内积聚的瓦斯、一氧化碳等异常');
-                reportLines.push('     气体可反向沿裂隙网络向工作面及巷道空间窜流，现场同时存在【采空区浮煤氧化自燃】');
-                reportLines.push('     与【采空区瓦斯异常涌出】双重安全风险。');
-                reportLines.push('');
-                reportLines.push('  3. 注氮驱替效应：');
-                reportLines.push('     现场对12802封闭采空区及12803运输巷沿空侧采空区持续实施注氮防灭火作业。注氮会');
-                reportLines.push('     改变采空区及裂隙通道内的气体压力场与组分浓度场，形成压力驱替效应：注入的高压氮气');
-                reportLines.push('     沿贯通裂隙网络扩散运移，可将采空区内积存的一氧化碳等有害气体挤压、携带至12803');
-                reportLines.push('     工作面回风巷侧，造成回风巷CO浓度被动升高。');
-                reportLines.push('');
-                reportLines.push('  4. 多气体联动规律：');
-                reportLines.push('     氮气为惰性气体，注入后挤占空气空间，直接导致区域内氧气浓度同步降低。当监测到回风巷');
-                reportLines.push('     氮气浓度持续升高、氧气浓度同步下降时，可判定注氮气流已通过围岩裂隙通道贯通涌入回风侧。');
-                reportLines.push('     因此，本工作面CO浓度异常波动并非单一煤体氧化导致，与采空区注氮引发的气体压力驱替、');
-                reportLines.push('     组分运移高度相关。');
-                reportLines.push('');
-                reportLines.push('  5. 分析判定规则：');
-                reportLines.push('     (1) 数据研判：结合当日、近三日、近一周连续监测数据进行趋势对比、联动相关性分析，');
-                reportLines.push('         剔除瞬时波动干扰，保证结论真实可靠。');
-                reportLines.push('     (2) 核心逻辑：重点研判氮气、氧气、一氧化碳三组气体的时序联动变化规律。');
-                reportLines.push('     (3) 注氮驱替判定：出现"N₂上升—O₂下降—CO同步抬升"联动趋势时，判定CO异常主要为');
-                reportLines.push('         注氮驱替采空区积存有害气体所致，非新鲜煤体大范围氧化自燃。');
-                reportLines.push('     (4) 自燃隐患判定：若无明显氮氧浓度波动、仅CO单独持续升高，且伴随乙烯、乙炔等烃类');
-                reportLines.push('         气体异常，则需重点研判现场煤体自燃升温隐患。');
-                reportLines.push('');
+    // ========== 一、现场工程背景与分析机理说明 ==========
+    reportLines.push('━'.repeat(80));
+    reportLines.push('【一、现场工程背景与气体运移分析机理】');
+    reportLines.push('━'.repeat(80));
+    reportLines.push('');
+    reportLines.push('  1. 工程背景：');
+    reportLines.push('     12803综采工作面运输巷采用沿空留巷布置，下隅角左侧紧邻12802已封闭采空区。');
+    reportLines.push('     受相邻工作面及本工作面采动应力叠加影响，沿空帮、上下隅角及顶板围岩裂隙高度发育，');
+    reportLines.push('     形成贯通性漏风通道。工作面采用U型一进一回通风系统，12802工作面已回采结束，');
+    reportLines.push('     其回风巷停采段已施工永久密闭，采空区处于封闭状态。');
+    reportLines.push('');
+    reportLines.push('  2. 漏风与气体运移机理：');
+    reportLines.push('     受采动裂隙贯通影响，新鲜风流可通过围岩裂隙、上下隅角松散煤体通道，向12803生产');
+    reportLines.push('     采空区及12802封闭采空区发生持续性漏风；同时采空区内积聚的瓦斯、一氧化碳等异常');
+    reportLines.push('     气体可反向沿裂隙网络向工作面及巷道空间窜流，现场同时存在【采空区浮煤氧化自燃】');
+    reportLines.push('     与【采空区瓦斯异常涌出】双重安全风险。');
+    reportLines.push('');
+    reportLines.push('  3. 注氮驱替效应：');
+    reportLines.push('     现场对12802封闭采空区及12803运输巷沿空侧采空区持续实施注氮防灭火作业。注氮会');
+    reportLines.push('     改变采空区及裂隙通道内的气体压力场与组分浓度场，形成压力驱替效应：注入的高压氮气');
+    reportLines.push('     沿贯通裂隙网络扩散运移，可将采空区内积存的一氧化碳等有害气体挤压、携带至12803');
+    reportLines.push('     工作面回风巷侧，造成回风巷CO浓度被动升高。');
+    reportLines.push('');
+    reportLines.push('  4. 多气体联动规律：');
+    reportLines.push('     氮气为惰性气体，注入后挤占空气空间，直接导致区域内氧气浓度同步降低。当监测到回风巷');
+    reportLines.push('     氮气浓度持续升高、氧气浓度同步下降时，可判定注氮气流已通过围岩裂隙通道贯通涌入回风侧。');
+    reportLines.push('     因此，本工作面CO浓度异常波动并非单一煤体氧化导致，与采空区注氮引发的气体压力驱替、');
+    reportLines.push('     组分运移高度相关。');
+    reportLines.push('');
+    reportLines.push('  5. 分析判定规则：');
+    reportLines.push('     (1) 数据研判：结合当日、近三日、近一周连续监测数据进行趋势对比、联动相关性分析，');
+    reportLines.push('         剔除瞬时波动干扰，保证结论真实可靠。');
+    reportLines.push('     (2) 核心逻辑：重点研判氮气、氧气、一氧化碳三组气体的时序联动变化规律。');
+    reportLines.push('     (3) 注氮驱替判定：出现"N₂上升—O₂下降—CO同步抬升"联动趋势时，判定CO异常主要为');
+    reportLines.push('         注氮驱替采空区积存有害气体所致，非新鲜煤体大范围氧化自燃。');
+    reportLines.push('     (4) 自燃隐患判定：若无明显氮氧浓度波动、仅CO单独持续升高，且伴随乙烯、乙炔等烃类');
+    reportLines.push('         气体异常，则需重点研判现场煤体自燃升温隐患。');
+    reportLines.push('');
 
-                // ========== 二、各监测地点气体变化详细分析 ==========
-                reportLines.push('━'.repeat(80));
-                reportLines.push('【二、各监测地点气体变化联动分析】');
-                reportLines.push('━'.repeat(80));
-                reportLines.push('');
+    // ========== 二、各监测地点气体变化详细分析 ==========
+    reportLines.push('━'.repeat(80));
+    reportLines.push('【二、各监测地点气体变化联动分析】');
+    reportLines.push('━'.repeat(80));
+    reportLines.push('');
 
-                let hasValidLoc = false;
+    let hasValidLoc = false;
 
-                for (let loc of locs) {
-                    const locData = data.filter(r => r.location === loc);
-                    if (locData.length < 2) {
-                        reportLines.push(`  ▶ 地点：${loc}`);
-                        reportLines.push(`    【数据不足】该地点有效数据点少于2个，无法进行趋势对比分析。`);
-                        reportLines.push('');
-                        continue;
+    for (let loc of locs) {
+        const locData = data.filter(r => r.location === loc);
+        if (locData.length < 2) {
+            reportLines.push(`  ▶ 地点：${loc}`);
+            reportLines.push(`    【数据不足】该地点有效数据点少于2个，无法进行趋势对比分析。`);
+            reportLines.push('');
+            continue;
+        }
+
+        hasValidLoc = true;
+        locData.sort((a, b) => a._dateObj - b._dateObj);
+
+        // ========== 多时间维度数据切片 ==========
+        const first = locData[0];
+        const last = locData[locData.length - 1];
+        const nowTime = last._dateObj || new Date();
+
+        // 近三日数据（72小时）
+        const threeDaysAgo = new Date(nowTime.getTime() - 3 * 24 * 3600 * 1000);
+        const data3d = locData.filter(r => r._dateObj >= threeDaysAgo);
+
+        // 近一周数据（168小时）
+        const weekAgo = new Date(nowTime.getTime() - 7 * 24 * 3600 * 1000);
+        const data7d = locData.filter(r => r._dateObj >= weekAgo);
+
+        // ========== 全周期变化量计算 ==========
+        const n2Diff = last.N2 - first.N2;
+        const o2Diff = last.O2 - first.O2;
+        const coDiff = last.CO - first.CO;
+        const n2Pct = first.N2 !== 0 ? (n2Diff / first.N2 * 100) : 0;
+        const o2Pct = first.O2 !== 0 ? (o2Diff / first.O2 * 100) : 0;
+        const coPct = first.CO !== 0 ? (coDiff / first.CO * 100) : 0;
+
+        // ========== 趋势斜率计算（线性回归近似） ==========
+        const calcTrend = (arr, field) => {
+            if (arr.length < 2) return 0;
+            const n = arr.length;
+            let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+            const t0 = arr[0]._dateObj.getTime();
+            for (let i = 0; i < n; i++) {
+                const x = (arr[i]._dateObj.getTime() - t0) / (24 * 3600 * 1000); // 天为单位
+                const y = arr[i][field] || 0;
+                sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x;
+            }
+            const denom = n * sumX2 - sumX * sumX;
+            return denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+        };
+
+        const n2Trend = calcTrend(locData, 'N2');
+        const o2Trend = calcTrend(locData, 'O2');
+        const coTrend = calcTrend(locData, 'CO');
+
+        // ========== 烃类气体分析（辅助判断煤体氧化程度） ==========
+        const hasHydrocarbon = ['C2H4', 'C2H2', 'C2H6', 'CH4'].some(f => first[f] !== undefined || last[f] !== undefined);
+        let hydrocarbonAnalysis = '';
+        let hydrocarbonWarning = false;
+
+        if (hasHydrocarbon) {
+            const hcFields = [
+                { key: 'C2H4', name: '乙烯', threshold: 0.1, unit: 'ppm' },
+                { key: 'C2H2', name: '乙炔', threshold: 0.05, unit: 'ppm' },
+                { key: 'C2H6', name: '乙烷', threshold: 0.1, unit: 'ppm' },
+                { key: 'CH4', name: '甲烷', threshold: 0.5, unit: '%' }
+            ];
+
+            const hcDetails = [];
+            for (let hc of hcFields) {
+                if (first[hc.key] !== undefined && last[hc.key] !== undefined) {
+                    const hcDiff = last[hc.key] - first[hc.key];
+                    const hcTrend = calcTrend(locData, hc.key);
+                    hcDetails.push({
+                        name: hc.name,
+                        first: first[hc.key],
+                        last: last[hc.key],
+                        diff: hcDiff,
+                        trend: hcTrend,
+                        threshold: hc.threshold,
+                        unit: hc.unit
+                    });
+                    // 乙炔出现或持续升高是煤体加速氧化的重要标志
+                    if (hc.key === 'C2H2' && (last[hc.key] > 0.01 || hcTrend > 0)) {
+                        hydrocarbonWarning = true;
                     }
-
-                    hasValidLoc = true;
-                    locData.sort((a, b) => a._dateObj - b._dateObj);
-
-                    // ========== 多时间维度数据切片 ==========
-                    const first = locData[0];
-                    const last = locData[locData.length - 1];
-                    const nowTime = last._dateObj || new Date();
-
-                    // 近三日数据（72小时）
-                    const threeDaysAgo = new Date(nowTime.getTime() - 3 * 24 * 3600 * 1000);
-                    const data3d = locData.filter(r => r._dateObj >= threeDaysAgo);
-
-                    // 近一周数据（168小时）
-                    const weekAgo = new Date(nowTime.getTime() - 7 * 24 * 3600 * 1000);
-                    const data7d = locData.filter(r => r._dateObj >= weekAgo);
-
-                    // ========== 全周期变化量计算 ==========
-                    const n2Diff = last.N2 - first.N2;
-                    const o2Diff = last.O2 - first.O2;
-                    const coDiff = last.CO - first.CO;
-                    const n2Pct = first.N2 !== 0 ? (n2Diff / first.N2 * 100) : 0;
-                    const o2Pct = first.O2 !== 0 ? (o2Diff / first.O2 * 100) : 0;
-                    const coPct = first.CO !== 0 ? (coDiff / first.CO * 100) : 0;
-
-                    // ========== 趋势斜率计算（线性回归近似） ==========
-                    const calcTrend = (arr, field) => {
-                        if (arr.length < 2) return 0;
-                        const n = arr.length;
-                        let sumX = 0,
-                            sumY = 0,
-                            sumXY = 0,
-                            sumX2 = 0;
-                        const t0 = arr[0]._dateObj.getTime();
-                        for (let i = 0; i < n; i++) {
-                            const x = (arr[i]._dateObj.getTime() - t0) / (24 * 3600 * 1000); // 天为单位
-                            const y = arr[i][field] || 0;
-                            sumX += x;
-                            sumY += y;
-                            sumXY += x * y;
-                            sumX2 += x * x;
-                        }
-                        const denom = n * sumX2 - sumX * sumX;
-                        return denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
-                    };
-
-                    const n2Trend = calcTrend(locData, 'N2');
-                    const o2Trend = calcTrend(locData, 'O2');
-                    const coTrend = calcTrend(locData, 'CO');
-
-                    // ========== 烃类气体分析（辅助判断煤体氧化程度） ==========
-                    const hasHydrocarbon = ['C2H4', 'C2H2', 'C2H6', 'CH4'].some(f => first[f] !== undefined || last[f] !==
-                    undefined);
-                    let hydrocarbonAnalysis = '';
-                    let hydrocarbonWarning = false;
-
-                    if (hasHydrocarbon) {
-                        const hcFields = [
-                            { key: 'C2H4', name: '乙烯', threshold: 0.1, unit: 'ppm' },
-                            { key: 'C2H2', name: '乙炔', threshold: 0.05, unit: 'ppm' },
-                            { key: 'C2H6', name: '乙烷', threshold: 0.1, unit: 'ppm' },
-                            { key: 'CH4', name: '甲烷', threshold: 0.5, unit: '%' }
-                        ];
-
-                        const hcDetails = [];
-                        for (let hc of hcFields) {
-                            if (first[hc.key] !== undefined && last[hc.key] !== undefined) {
-                                const hcDiff = last[hc.key] - first[hc.key];
-                                const hcTrend = calcTrend(locData, hc.key);
-                                hcDetails.push({
-                                    name: hc.name,
-                                    first: first[hc.key],
-                                    last: last[hc.key],
-                                    diff: hcDiff,
-                                    trend: hcTrend,
-                                    threshold: hc.threshold,
-                                    unit: hc.unit
-                                });
-                                if (hc.key === 'C2H2' && (last[hc.key] > 0.01 || hcTrend > 0)) {
-                                    hydrocarbonWarning = true;
-                                }
-                                if (hc.key === 'C2H4' && hcTrend > 0 && last[hc.key] > hc.threshold) {
-                                    hydrocarbonWarning = true;
-                                }
-                            }
-                        }
-
-                        if (hcDetails.length > 0) {
-                            hydrocarbonAnalysis = hcDetails.map(h =>
-                                `${h.name}: ${h.first.toFixed(3)}→${h.last.toFixed(3)}${h.unit}(${h.diff >= 0 ? '+' : ''}${h.diff.toFixed(3)})`
-                            ).join('；');
-                        }
-                    }
-
-                    // ========== 输出地点分析头部 ==========
-                    reportLines.push(`  ┌─────────────────────────────────────────────────────────────────────┐`);
-                    reportLines.push(`  │ 监测地点：${loc.padEnd(56)}│`);
-                    reportLines.push(`  └─────────────────────────────────────────────────────────────────────┘`);
-                    reportLines.push(`    监测周期：${first.datetime} 至 ${last.datetime}`);
-                    reportLines.push(`    数据点数：${locData.length} 条（近3日${data3d.length}条，近7日${data7d.length}条）`);
-                    reportLines.push('');
-
-                    // ========== 核心气体变化数据 ==========
-                    reportLines.push(`    【核心气体浓度变化】`);
-                    reportLines.push(
-                        `      N₂ ：${first.N2.toFixed(4)}% → ${last.N2.toFixed(4)}%  变化：${n2Diff >= 0 ? '+' : ''}${n2Diff.toFixed(4)}% (${n2Pct >= 0 ? '+' : ''}${n2Pct.toFixed(2)}%)`
-                        );
-                    reportLines.push(
-                        `      O₂ ：${first.O2.toFixed(4)}% → ${last.O2.toFixed(4)}%  变化：${o2Diff >= 0 ? '+' : ''}${o2Diff.toFixed(4)}% (${o2Pct >= 0 ? '+' : ''}${o2Pct.toFixed(2)}%)`
-                        );
-                    reportLines.push(
-                        `      CO ：${first.CO.toFixed(2)}ppm → ${last.CO.toFixed(2)}ppm  变化：${coDiff >= 0 ? '+' : ''}${coDiff.toFixed(2)}ppm (${coPct >= 0 ? '+' : ''}${coPct.toFixed(2)}%)`
-                        );
-                    reportLines.push('');
-
-                    // ========== 趋势分析 ==========
-                    reportLines.push(`    【变化趋势（日均变化率）】`);
-                    reportLines.push(`      N₂趋势：${n2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(n2Trend).toFixed(5)}%/天`);
-                    reportLines.push(`      O₂趋势：${o2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(o2Trend).toFixed(5)}%/天`);
-                    reportLines.push(`      CO趋势：${coTrend >= 0 ? '↑ +' : '↓ '}${Math.abs(coTrend).toFixed(3)}ppm/天`);
-                    reportLines.push('');
-
-                    // ========== 烃类气体辅助分析 ==========
-                    if (hydrocarbonAnalysis) {
-                        reportLines.push(`    【烃类气体辅助分析】`);
-                        reportLines.push(`      ${hydrocarbonAnalysis}`);
-                        if (hydrocarbonWarning) {
-                            reportLines.push(
-                                `      ⚠ 烃类气体异常：乙炔/乙烯出现或持续升高，提示煤体氧化可能进入加速阶段，需重点关注！`
-                                );
-                        } else {
-                            reportLines.push(`      ✓ 烃类气体无明显异常，暂未发现煤体加速氧化特征。`);
-                        }
-                        reportLines.push('');
-                    }
-
-                    // ========== 综合诊断判定 ==========
-                    reportLines.push(`    【综合诊断判定】`);
-
-                    // 判定阈值
-                    const N2_SIGNIFICANT = 0.5;
-                    const O2_SIGNIFICANT = 0.3;
-                    const CO_SIGNIFICANT = 2;
-                    const CO_WARNING = 24;
-                    const O2_LOW = 18;
-
-                    const n2Sig = Math.abs(n2Diff) > N2_SIGNIFICANT || Math.abs(n2Trend) > 0.1;
-                    const o2Sig = Math.abs(o2Diff) > O2_SIGNIFICANT || Math.abs(o2Trend) > 0.05;
-                    const coSig = Math.abs(coDiff) > CO_SIGNIFICANT || Math.abs(coTrend) > 0.5;
-
-                    let diagnosis = '';
-                    let riskLevel = '正常';
-                    let riskType = '无明显异常';
-
-                    // CO浓度超限判定
-                    if (last.CO >= CO_WARNING) {
-                        riskLevel = '高危';
-                        diagnosis += `      🔴 【超限预警】当前CO浓度 ${last.CO.toFixed(2)}ppm 已达到/超过《煤矿安全规程》规定的24ppm报警阈值！\n`;
-                    } else if (last.CO >= 10) {
-                        riskLevel = '关注';
-                        diagnosis += `      🟡 【浓度关注】当前CO浓度 ${last.CO.toFixed(2)}ppm，处于较高水平，需持续监测。\n`;
-                    }
-
-                    // 氧气浓度判定
-                    if (last.O2 < O2_LOW) {
-                        riskLevel = riskLevel === '高危' ? '高危' : '关注';
-                        diagnosis += `      🟡 【氧气偏低】当前O₂浓度 ${last.O2.toFixed(2)}%，低于18%，存在缺氧风险，需确认是否为注氮影响。\n`;
-                    }
-
-                    // 核心联动判定逻辑
-                    if (n2Sig && o2Sig && coSig) {
-                        if (n2Diff > 0 && o2Diff < 0 && coDiff > 0) {
-                            riskType = '注氮驱替导致CO升高';
-                            diagnosis +=
-                                `      🟢 【注氮驱替判定】呈现典型"N₂上升(+${n2Diff.toFixed(4)}%)→O₂下降(${o2Diff.toFixed(4)}%)→CO同步抬升(+${coDiff.toFixed(2)}ppm)"联动趋势。\n`;
-                            diagnosis +=
-                                `               判定本次CO升高主要为注氮作业驱替采空区积存有害气体沿裂隙通道涌入回风侧所致，\n`;
-                            diagnosis += `               非工作面新鲜煤体大范围氧化自燃。建议核实注氮流量变化，适当调整注氮参数。\n`;
-                        } else if (n2Diff > 0 && o2Diff < 0 && coDiff < 0) {
-                            riskType = '注氮惰化效果良好';
-                            diagnosis +=
-                                `      🟢 【惰化效果良好】N₂上升(+${n2Diff.toFixed(4)}%)、O₂下降(${o2Diff.toFixed(4)}%)、CO下降(${coDiff.toFixed(2)}ppm)，\n`;
-                            diagnosis += `               表明注氮有效降低了采空区氧气浓度，抑制了煤体氧化反应，防灭火效果良好。\n`;
-                        } else if (n2Diff < 0 && o2Diff > 0 && coDiff > 0) {
-                            riskType = '注氮不足/漏风加剧，氧化风险升高';
-                            riskLevel = riskLevel === '高危' ? '高危' : '关注';
-                            diagnosis +=
-                                `      🟡 【氧化风险升高】N₂下降(${n2Diff.toFixed(4)}%)、O₂上升(+${o2Diff.toFixed(4)}%)、CO上升(+${coDiff.toFixed(2)}ppm)，\n`;
-                            diagnosis += `               表明注氮浓度降低或采空区漏风增大，氧气进入量增加，煤体氧化反应可能加剧。\n`;
-                            diagnosis += `               建议检查注氮系统运行状态及管路气密性，排查漏风通道并及时封堵。\n`;
-                        } else if (n2Diff < 0 && o2Diff > 0 && coDiff < 0) {
-                            riskType = '通风稀释作用主导';
-                            diagnosis += `      ℹ 【通风稀释主导】N₂下降、O₂上升、CO下降，表明通风量增大或漏风通道变化，新鲜风流稀释了CO浓度。\n`;
-                        } else {
-                            diagnosis += `      ℹ 气体变化组合较为复杂，需结合现场注氮记录及通风情况综合研判。\n`;
-                        }
-                    } else if (coSig && coDiff > 0 && !n2Sig && !o2Sig) {
-                        riskType = 'CO单独升高，需排查自燃隐患';
-                        riskLevel = riskLevel === '高危' ? '高危' : '关注';
-                        diagnosis += `      🟡 【单独升高预警】CO浓度上升(+${coDiff.toFixed(2)}ppm)，但N₂、O₂无明显联动变化，\n`;
-                        diagnosis += `               排除注氮驱替因素，需重点排查是否存在煤体氧化自燃隐患。\n`;
-                        if (hydrocarbonWarning) {
-                            diagnosis += `               同时烃类气体（乙烯/乙炔）异常，煤体自燃风险较高，建议立即采取针对性防灭火措施！\n`;
-                            riskLevel = '高危';
-                        } else {
-                            diagnosis +=
-                                `               建议加密监测频次，结合温度监测、现场观察等手段综合判定，必要时采取预防性注氮。\n`;
-                        }
-                    } else if (coSig && coDiff < 0) {
-                        riskType = 'CO浓度持续下降，状况向好';
-                        diagnosis += `      🟢 【状况向好】CO浓度持续下降(${coDiff.toFixed(2)}ppm)，采空区气体状况趋于稳定。\n`;
-                    } else if (!n2Sig && !o2Sig && !coSig) {
-                        diagnosis += `      ✓ 各气体浓度波动较小，监测区域气体组分相对稳定，无明显异常变化。\n`;
-                    } else {
-                        diagnosis += `      ℹ 气体变化未形成典型联动模式，建议结合现场实际情况（注氮量、通风量、推进度等）综合分析。\n`;
-                    }
-
-                    if (hydrocarbonWarning && coDiff > 0) {
-                        diagnosis +=
-                            `      ⚠ 【综合风险提示】CO升高伴随烃类气体异常，不能完全排除煤体氧化自燃因素，\n`;
-                        diagnosis += `               建议在确认注氮影响的同时，同步开展自燃隐患排查，做到双重防控。\n`;
-                        riskLevel = riskLevel === '正常' ? '关注' : riskLevel;
-                    }
-
-                    reportLines.push(diagnosis);
-                    reportLines.push(`      ── 风险等级：${riskLevel} | 异常类型：${riskType}`);
-                    reportLines.push('');
-                }
-
-                if (!hasValidLoc && locs.length > 0) {
-                    reportLines.push('  【说明】所有监测地点数据点均不足，无法进行有效趋势分析。');
-                    reportLines.push('');
-                }
-
-                // ========== 三、综合结论与防灭火措施建议 ==========
-                reportLines.push('━'.repeat(80));
-                reportLines.push('【三、综合结论与防灭火措施建议】');
-                reportLines.push('━'.repeat(80));
-                reportLines.push('');
-
-                // 统计整体风险
-                const highRiskLocs = [];
-                const concernLocs = [];
-                for (let loc of locs) {
-                    const locData = data.filter(r => r.location === loc).sort((a, b) => a._dateObj - b._dateObj);
-                    if (locData.length >= 2) {
-                        const last = locData[locData.length - 1];
-                        if (last.CO >= 24) highRiskLocs.push(loc);
-                        else if (last.CO >= 10) concernLocs.push(loc);
+                    // 乙烯持续升高表明煤体氧化进入加速阶段
+                    if (hc.key === 'C2H4' && hcTrend > 0 && last[hc.key] > hc.threshold) {
+                        hydrocarbonWarning = true;
                     }
                 }
-
-                reportLines.push('  1. 综合结论：');
-                if (highRiskLocs.length > 0) {
-                    reportLines.push(`     🔴 本次分析发现 ${highRiskLocs.length} 个地点CO浓度达到报警阈值（${highRiskLocs.join('、')}），`);
-                    reportLines.push(`        需立即按《煤矿安全规程》及《防灭火细则》要求采取应急处置措施。`);
-                } else if (concernLocs.length > 0) {
-                    reportLines.push(`     🟡 本次分析发现 ${concernLocs.length} 个地点CO浓度处于较高水平（${concernLocs.join('、')}），`);
-                    reportLines.push(`        需加密监测频次，密切关注变化趋势。`);
-                } else {
-                    reportLines.push('     🟢 各监测地点气体浓度总体处于可控范围，未发现CO浓度超限情况。');
-                }
-                reportLines.push('');
-
-                reportLines.push('  2. 注氮防灭火管理建议（依据《煤矿防灭火细则》第四十条~第四十五条）：');
-                reportLines.push('     (1) 确保注氮系统连续稳定运行，注氮口氮气浓度不低于97%，采空区氧化带氧气浓度控制在8%以下；');
-                reportLines.push('     (2) 根据工作面推进度及采空区"三带"分布，动态调整注氮流量及注氮口位置，保证惰化效果；');
-                reportLines.push('     (3) 定期检测注氮管路气密性，防止管路泄漏导致注氮效率降低；');
-                reportLines.push('     (4) 建立注氮量与CO浓度联动分析机制，当注氮量增大导致回风侧CO被动升高时，应优化注氮参数，');
-                reportLines.push('         避免高压氮气快速驱替采空区积存气体造成回风侧CO瞬时超限。');
-                reportLines.push('');
-
-                reportLines.push('  3. 监测预警建议（依据《煤矿安全规程》第一百二十三条、第一百二十四条）：');
-                reportLines.push('     (1) 采空区束管监测每班至少分析一次气体组分，重点监测CO、O₂、N₂及乙烯、乙炔等烃类气体；');
-                reportLines.push('     (2) 建立气体变化趋势预警机制：CO浓度超过24ppm、乙烯浓度超过0.1ppm、乙炔出现时立即报警；');
-                reportLines.push('     (3) 当CO变化率连续3天超过20%时，即使未达超限值也应启动预警，加密监测并排查原因；');
-                reportLines.push('     (4) 结合温度监测、红外测温等手段，实现气体-温度多参数综合预警，提高自燃隐患识别准确性。');
-                reportLines.push('');
-
-                reportLines.push('  4. 沿空留巷及漏风管控建议：');
-                reportLines.push('     (1) 加强12803运输巷沿空帮、上下隅角封堵，采用喷浆、注浆、充填等手段减少漏风通道；');
-                reportLines.push('     (2) 定期检查12802采空区永久密闭完整性，发现裂隙、漏风及时修补，防止采空区气体窜出；');
-                reportLines.push('     (3) 优化工作面通风系统，合理控制配风量，减少向采空区的漏风，降低煤体氧化供氧条件；');
-                reportLines.push('     (4) 对顶板裂隙发育区域，可采取注浆加固、喷涂堵漏等措施，切断气体运移通道。');
-                reportLines.push('');
-
-                reportLines.push('  5. 应急处置要求：');
-                reportLines.push('     (1) 当监测到CO浓度持续升高且伴随乙烯、乙炔等烃类气体异常，判定为自燃隐患时，');
-                reportLines.push('         应立即启动防灭火应急预案，采取加大注氮量、注浆、封闭等综合措施；');
-                reportLines.push('     (2) 若确认CO升高为注氮驱替所致，应优化注氮参数（降低瞬时流量、调整注氮口位置），');
-                reportLines.push('         同时加强回风侧气体监测，确保作业环境安全；');
-                reportLines.push('     (3) 任何情况下CO浓度超过24ppm时，必须立即撤出受威胁区域人员，采取措施进行处理。');
-                reportLines.push('');
-
-                // ========== 报告尾部 ==========
-                reportLines.push('━'.repeat(80));
-                reportLines.push('【报告说明】');
-                reportLines.push('  1. 本报告基于束管监测系统自动采集数据生成，分析结论仅供现场技术人员参考，');
-                reportLines.push('     具体处置措施需结合现场实际情况及专业技术人员研判确定。');
-                reportLines.push('  2. 分析判定标准依据《煤矿安全规程》（2022版）、《煤矿防灭火细则》（2021版）相关规定。');
-                reportLines.push('  3. 气体浓度变化受注氮、通风、推进度、漏风等多因素影响，本报告重点分析注氮驱替效应，');
-                reportLines.push('     其他影响因素需结合现场记录综合研判。');
-                reportLines.push('');
-                reportLines.push(`  报告生成时间：${new Date().toLocaleString('zh-CN')}`);
-                reportLines.push(`  分析数据范围：${modeLabel} | 监测地点：${location}`);
-                reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
-                reportLines.push('║                              报告结束                                       ║');
-                reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
-
-                container.innerText = reportLines.join('\n');
             }
 
-            function refreshGasAll() {
-                const data = getFilteredData();
-                gasFiltered = data;
-                updateStats(data);
-                renderGasCharts(data);
-                renderGasTable(data);
-                renderGasAnalysis(data);
+            if (hcDetails.length > 0) {
+                hydrocarbonAnalysis = hcDetails.map(h =>
+                    `${h.name}: ${h.first.toFixed(3)}→${h.last.toFixed(3)}${h.unit}(${h.diff >= 0 ? '+' : ''}${h.diff.toFixed(3)})`
+                ).join('；');
             }
-            window._gasRefresh = refreshGasAll;
+        }
 
+        // ========== 输出地点分析头部 ==========
+        reportLines.push(`  ┌─────────────────────────────────────────────────────────────────────┐`);
+        reportLines.push(`  │ 监测地点：${loc.padEnd(56)}│`);
+        reportLines.push(`  └─────────────────────────────────────────────────────────────────────┘`);
+        reportLines.push(`    监测周期：${first.datetime} 至 ${last.datetime}`);
+        reportLines.push(`    数据点数：${locData.length} 条（近3日${data3d.length}条，近7日${data7d.length}条）`);
+        reportLines.push('');
+
+        // ========== 核心气体变化数据 ==========
+        reportLines.push(`    【核心气体浓度变化】`);
+        reportLines.push(`      N₂ ：${first.N2.toFixed(4)}% → ${last.N2.toFixed(4)}%  变化：${n2Diff >= 0 ? '+' : ''}${n2Diff.toFixed(4)}% (${n2Pct >= 0 ? '+' : ''}${n2Pct.toFixed(2)}%)`);
+        reportLines.push(`      O₂ ：${first.O2.toFixed(4)}% → ${last.O2.toFixed(4)}%  变化：${o2Diff >= 0 ? '+' : ''}${o2Diff.toFixed(4)}% (${o2Pct >= 0 ? '+' : ''}${o2Pct.toFixed(2)}%)`);
+        reportLines.push(`      CO ：${first.CO.toFixed(2)}ppm → ${last.CO.toFixed(2)}ppm  变化：${coDiff >= 0 ? '+' : ''}${coDiff.toFixed(2)}ppm (${coPct >= 0 ? '+' : ''}${coPct.toFixed(2)}%)`);
+        reportLines.push('');
+
+        // ========== 趋势分析 ==========
+        reportLines.push(`    【变化趋势（日均变化率）】`);
+        reportLines.push(`      N₂趋势：${n2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(n2Trend).toFixed(5)}%/天`);
+        reportLines.push(`      O₂趋势：${o2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(o2Trend).toFixed(5)}%/天`);
+        reportLines.push(`      CO趋势：${coTrend >= 0 ? '↑ +' : '↓ '}${Math.abs(coTrend).toFixed(3)}ppm/天`);
+        reportLines.push('');
+
+        // ========== 烃类气体辅助分析 ==========
+        if (hydrocarbonAnalysis) {
+            reportLines.push(`    【烃类气体辅助分析】`);
+            reportLines.push(`      ${hydrocarbonAnalysis}`);
+            if (hydrocarbonWarning) {
+                reportLines.push(`      ⚠ 烃类气体异常：乙炔/乙烯出现或持续升高，提示煤体氧化可能进入加速阶段，需重点关注！`);
+            } else {
+                reportLines.push(`      ✓ 烃类气体无明显异常，暂未发现煤体加速氧化特征。`);
+            }
+            reportLines.push('');
+        }
+
+        // ========== 综合诊断判定 ==========
+        reportLines.push(`    【综合诊断判定】`);
+
+        // 判定阈值
+        const N2_SIGNIFICANT = 0.5;    // 氮气显著变化阈值（%）
+        const O2_SIGNIFICANT = 0.3;    // 氧气显著变化阈值（%）
+        const CO_SIGNIFICANT = 2;      // CO显著变化阈值（ppm）
+        const CO_WARNING = 24;         // CO报警阈值（ppm）- 依据煤矿安全规程
+        const O2_LOW = 18;             // 氧气下限（%）
+
+        const n2Sig = Math.abs(n2Diff) > N2_SIGNIFICANT || Math.abs(n2Trend) > 0.1;
+        const o2Sig = Math.abs(o2Diff) > O2_SIGNIFICANT || Math.abs(o2Trend) > 0.05;
+        const coSig = Math.abs(coDiff) > CO_SIGNIFICANT || Math.abs(coTrend) > 0.5;
+
+        let diagnosis = '';
+        let riskLevel = '正常';
+        let riskType = '无明显异常';
+
+        // CO浓度超限判定
+        if (last.CO >= CO_WARNING) {
+            riskLevel = '高危';
+            diagnosis += `      🔴 【超限预警】当前CO浓度 ${last.CO.toFixed(2)}ppm 已达到/超过《煤矿安全规程》规定的24ppm报警阈值！\n`;
+        } else if (last.CO >= 10) {
+            riskLevel = '关注';
+            diagnosis += `      🟡 【浓度关注】当前CO浓度 ${last.CO.toFixed(2)}ppm，处于较高水平，需持续监测。\n`;
+        }
+
+        // 氧气浓度判定
+        if (last.O2 < O2_LOW) {
+            riskLevel = riskLevel === '高危' ? '高危' : '关注';
+            diagnosis += `      🟡 【氧气偏低】当前O₂浓度 ${last.O2.toFixed(2)}%，低于18%，存在缺氧风险，需确认是否为注氮影响。\n`;
+        }
+
+        // 核心联动判定逻辑
+        if (n2Sig && o2Sig && coSig) {
+            // 典型注氮驱替模式：N2↑ + O2↓ + CO↑
+            if (n2Diff > 0 && o2Diff < 0 && coDiff > 0) {
+                riskType = '注氮驱替导致CO升高';
+                diagnosis += `      🟢 【注氮驱替判定】呈现典型"N₂上升(+${n2Diff.toFixed(4)}%)→O₂下降(${o2Diff.toFixed(4)}%)→CO同步抬升(+${coDiff.toFixed(2)}ppm)"联动趋势。\n`;
+                diagnosis += `               判定本次CO升高主要为注氮作业驱替采空区积存有害气体沿裂隙通道涌入回风侧所致，\n`;
+                diagnosis += `               非工作面新鲜煤体大范围氧化自燃。建议核实注氮流量变化，适当调整注氮参数。\n`;
+            }
+            // N2↑ + O2↓ + CO↓：注氮惰化效果良好
+            else if (n2Diff > 0 && o2Diff < 0 && coDiff < 0) {
+                riskType = '注氮惰化效果良好';
+                diagnosis += `      🟢 【惰化效果良好】N₂上升(+${n2Diff.toFixed(4)}%)、O₂下降(${o2Diff.toFixed(4)}%)、CO下降(${coDiff.toFixed(2)}ppm)，\n`;
+                diagnosis += `               表明注氮有效降低了采空区氧气浓度，抑制了煤体氧化反应，防灭火效果良好。\n`;
+            }
+            // N2↓ + O2↑ + CO↑：注氮减少/漏风增大导致氧化加剧
+            else if (n2Diff < 0 && o2Diff > 0 && coDiff > 0) {
+                riskType = '注氮不足/漏风加剧，氧化风险升高';
+                riskLevel = riskLevel === '高危' ? '高危' : '关注';
+                diagnosis += `      🟡 【氧化风险升高】N₂下降(${n2Diff.toFixed(4)}%)、O₂上升(+${o2Diff.toFixed(4)}%)、CO上升(+${coDiff.toFixed(2)}ppm)，\n`;
+                diagnosis += `               表明注氮浓度降低或采空区漏风增大，氧气进入量增加，煤体氧化反应可能加剧。\n`;
+                diagnosis += `               建议检查注氮系统运行状态及管路气密性，排查漏风通道并及时封堵。\n`;
+            }
+            // N2↓ + O2↑ + CO↓：通风稀释为主
+            else if (n2Diff < 0 && o2Diff > 0 && coDiff < 0) {
+                riskType = '通风稀释作用主导';
+                diagnosis += `      ℹ 【通风稀释主导】N₂下降、O₂上升、CO下降，表明通风量增大或漏风通道变化，新鲜风流稀释了CO浓度。\n`;
+            }
+            else {
+                diagnosis += `      ℹ 气体变化组合较为复杂，需结合现场注氮记录及通风情况综合研判。\n`;
+            }
+        }
+        // 仅CO单独升高，无明显氮氧联动
+        else if (coSig && coDiff > 0 && !n2Sig && !o2Sig) {
+            riskType = 'CO单独升高，需排查自燃隐患';
+            riskLevel = riskLevel === '高危' ? '高危' : '关注';
+            diagnosis += `      🟡 【单独升高预警】CO浓度上升(+${coDiff.toFixed(2)}ppm)，但N₂、O₂无明显联动变化，\n`;
+            diagnosis += `               排除注氮驱替因素，需重点排查是否存在煤体氧化自燃隐患。\n`;
+            if (hydrocarbonWarning) {
+                diagnosis += `               同时烃类气体（乙烯/乙炔）异常，煤体自燃风险较高，建议立即采取针对性防灭火措施！\n`;
+                riskLevel = '高危';
+            } else {
+                diagnosis += `               建议加密监测频次，结合温度监测、现场观察等手段综合判定，必要时采取预防性注氮。\n`;
+            }
+        }
+        // CO持续下降
+        else if (coSig && coDiff < 0) {
+            riskType = 'CO浓度持续下降，状况向好';
+            diagnosis += `      🟢 【状况向好】CO浓度持续下降(${coDiff.toFixed(2)}ppm)，采空区气体状况趋于稳定。\n`;
+        }
+        // 各气体均无显著变化
+        else if (!n2Sig && !o2Sig && !coSig) {
+            diagnosis += `      ✓ 各气体浓度波动较小，监测区域气体组分相对稳定，无明显异常变化。\n`;
+        }
+        else {
+            diagnosis += `      ℹ 气体变化未形成典型联动模式，建议结合现场实际情况（注氮量、通风量、推进度等）综合分析。\n`;
+        }
+
+        // 烃类气体叠加判定
+        if (hydrocarbonWarning && coDiff > 0) {
+            diagnosis += `      ⚠ 【综合风险提示】CO升高伴随烃类气体异常，不能完全排除煤体氧化自燃因素，\n`;
+            diagnosis += `               建议在确认注氮影响的同时，同步开展自燃隐患排查，做到双重防控。\n`;
+            riskLevel = riskLevel === '正常' ? '关注' : riskLevel;
+        }
+
+        reportLines.push(diagnosis);
+        reportLines.push(`      ── 风险等级：${riskLevel} | 异常类型：${riskType}`);
+        reportLines.push('');
+    }
+
+    if (!hasValidLoc && locs.length > 0) {
+        reportLines.push('  【说明】所有监测地点数据点均不足，无法进行有效趋势分析。');
+        reportLines.push('');
+    }
+
+    // ========== 三、综合结论与防灭火措施建议 ==========
+    reportLines.push('━'.repeat(80));
+    reportLines.push('【三、综合结论与防灭火措施建议】');
+    reportLines.push('━'.repeat(80));
+    reportLines.push('');
+
+    // 统计整体风险
+    const highRiskLocs = [];
+    const concernLocs = [];
+    for (let loc of locs) {
+        const locData = data.filter(r => r.location === loc).sort((a, b) => a._dateObj - b._dateObj);
+        if (locData.length >= 2) {
+            const last = locData[locData.length - 1];
+            if (last.CO >= 24) highRiskLocs.push(loc);
+            else if (last.CO >= 10) concernLocs.push(loc);
+        }
+    }
+
+    reportLines.push('  1. 综合结论：');
+    if (highRiskLocs.length > 0) {
+        reportLines.push(`     🔴 本次分析发现 ${highRiskLocs.length} 个地点CO浓度达到报警阈值（${highRiskLocs.join('、')}），`);
+        reportLines.push(`        需立即按《煤矿安全规程》及《防灭火细则》要求采取应急处置措施。`);
+    } else if (concernLocs.length > 0) {
+        reportLines.push(`     🟡 本次分析发现 ${concernLocs.length} 个地点CO浓度处于较高水平（${concernLocs.join('、')}），`);
+        reportLines.push(`        需加密监测频次，密切关注变化趋势。`);
+    } else {
+        reportLines.push('     🟢 各监测地点气体浓度总体处于可控范围，未发现CO浓度超限情况。');
+    }
+    reportLines.push('');
+
+    reportLines.push('  2. 注氮防灭火管理建议（依据《煤矿防灭火细则》第四十条~第四十五条）：');
+    reportLines.push('     (1) 确保注氮系统连续稳定运行，注氮口氮气浓度不低于97%，采空区氧化带氧气浓度控制在8%以下；');
+    reportLines.push('     (2) 根据工作面推进度及采空区"三带"分布，动态调整注氮流量及注氮口位置，保证惰化效果；');
+    reportLines.push('     (3) 定期检测注氮管路气密性，防止管路泄漏导致注氮效率降低；');
+    reportLines.push('     (4) 建立注氮量与CO浓度联动分析机制，当注氮量增大导致回风侧CO被动升高时，应优化注氮参数，');
+    reportLines.push('         避免高压氮气快速驱替采空区积存气体造成回风侧CO瞬时超限。');
+    reportLines.push('');
+
+    reportLines.push('  3. 监测预警建议（依据《煤矿安全规程》第一百二十三条、第一百二十四条）：');
+    reportLines.push('     (1) 采空区束管监测每班至少分析一次气体组分，重点监测CO、O₂、N₂及乙烯、乙炔等烃类气体；');
+    reportLines.push('     (2) 建立气体变化趋势预警机制：CO浓度超过24ppm、乙烯浓度超过0.1ppm、乙炔出现时立即报警；');
+    reportLines.push('     (3) 当CO变化率连续3天超过20%时，即使未达超限值也应启动预警，加密监测并排查原因；');
+    reportLines.push('     (4) 结合温度监测、红外测温等手段，实现气体-温度多参数综合预警，提高自燃隐患识别准确性。');
+    reportLines.push('');
+
+    reportLines.push('  4. 沿空留巷及漏风管控建议：');
+    reportLines.push('     (1) 加强12803运输巷沿空帮、上下隅角封堵，采用喷浆、注浆、充填等手段减少漏风通道；');
+    reportLines.push('     (2) 定期检查12802采空区永久密闭完整性，发现裂隙、漏风及时修补，防止采空区气体窜出；');
+    reportLines.push('     (3) 优化工作面通风系统，合理控制配风量，减少向采空区的漏风，降低煤体氧化供氧条件；');
+    reportLines.push('     (4) 对顶板裂隙发育区域，可采取注浆加固、喷涂堵漏等措施，切断气体运移通道。');
+    reportLines.push('');
+
+    reportLines.push('  5. 应急处置要求：');
+    reportLines.push('     (1) 当监测到CO浓度持续升高且伴随乙烯、乙炔等烃类气体异常，判定为自燃隐患时，');
+    reportLines.push('         应立即启动防灭火应急预案，采取加大注氮量、注浆、封闭等综合措施；');
+    reportLines.push('     (2) 若确认CO升高为注氮驱替所致，应优化注氮参数（降低瞬时流量、调整注氮口位置），');
+    reportLines.push('         同时加强回风侧气体监测，确保作业环境安全；');
+    reportLines.push('     (3) 任何情况下CO浓度超过24ppm时，必须立即撤出受威胁区域人员，采取措施进行处理。');
+    reportLines.push('');
+
+    // ========== 报告尾部 ==========
+    reportLines.push('━'.repeat(80));
+    reportLines.push('【报告说明】');
+    reportLines.push('  1. 本报告基于束管监测系统自动采集数据生成，分析结论仅供现场技术人员参考，');
+    reportLines.push('     具体处置措施需结合现场实际情况及专业技术人员研判确定。');
+    reportLines.push('  2. 分析判定标准依据《煤矿安全规程》（2022版）、《煤矿防灭火细则》（2021版）相关规定。');
+    reportLines.push('  3. 气体浓度变化受注氮、通风、推进度、漏风等多因素影响，本报告重点分析注氮驱替效应，');
+    reportLines.push('     其他影响因素需结合现场记录综合研判。');
+    reportLines.push('');
+    reportLines.push(`  报告生成时间：${new Date().toLocaleString('zh-CN')}`);
+    reportLines.push(`  分析数据范围：${modeLabel} | 监测地点：${location}`);
+    reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
+    reportLines.push('║                              报告结束                                       ║');
+    reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
+
+    container.innerText = reportLines.join('\n');
+}
+
+/**
+ * 刷新全部气体分析模块
+ */
+function refreshGasAll() {
+    const data = getFilteredData();
+    gasFiltered = data;
+    updateStats(data);
+    renderGasCharts(data);
+    renderGasTable(data);
+    renderGasAnalysis(data);
+}
+
+window._gasRefresh = refreshGasAll;
             // ---- 导出 ----
             function exportCSV() {
                 if (gasFiltered.length === 0) { alert('无数据可导出'); return; }
@@ -3348,7 +3362,7 @@
                     if (mode !== 'custom') {
                         const start = dom.gasStartDate.value;
                         const end = dom.gasEndDate.value;
-                        const today = new Date().toISOString().slice(0, 10);
+                        const today = localTodayStr();
                         if (start !== today || end !== today) {
                             dom.gasTimeRange.value = 'custom';
                         }
@@ -3359,24 +3373,24 @@
                 dom.gasLocationSelect.addEventListener('change', refreshGasAll);
                 dom.gasTimeRange.addEventListener('change', function() {
                     const mode = this.value;
-                    const today = new Date().toISOString().slice(0, 10);
+                    const today = localTodayStr();
                     if (mode === 'today') {
                         dom.gasStartDate.value = today;
                         dom.gasEndDate.value = today;
                     } else if (mode === 'three_days') {
                         const d = new Date();
                         d.setDate(d.getDate() - 2);
-                        dom.gasStartDate.value = d.toISOString().slice(0, 10);
+                        dom.gasStartDate.value = localTodayStr(d);
                         dom.gasEndDate.value = today;
                     } else if (mode === 'week') {
                         const d = new Date();
                         d.setDate(d.getDate() - 6);
-                        dom.gasStartDate.value = d.toISOString().slice(0, 10);
+                        dom.gasStartDate.value = localTodayStr(d);
                         dom.gasEndDate.value = today;
                     } else if (mode === 'month') {
                         const d = new Date();
                         d.setDate(d.getDate() - 29);
-                        dom.gasStartDate.value = d.toISOString().slice(0, 10);
+                        dom.gasStartDate.value = localTodayStr(d);
                         dom.gasEndDate.value = today;
                     } else if (mode === 'all') {
                         const dates = gasRawData.map(r => r.date).sort();
@@ -3414,7 +3428,7 @@
             async function initGas() {
                 await loadGasDataFromFile();
                 bindGasEvents();
-                const today = new Date().toISOString().slice(0, 10);
+                const today = localTodayStr();
                 const dates = gasRawData.map(r => r.date).sort();
                 let target = today;
                 if (!dates.includes(today) && dates.length > 0) {
