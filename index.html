@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js">
     </script>
     <style>
-        /* ===== 全部样式 ===== */
+        /* ===== 全局样式 ===== */
         * {
             margin: 0;
             padding: 0;
@@ -859,9 +859,10 @@
         // 0. 许可码配置（管理员在此修改）
         // ===================================================================
         const GAS_LICENSE_KEY = 'yj2026'; // ← 修改此值为您的自定义许可码
+        const LICENSE_VALID_HOURS = 1; // 许可有效期（小时）
 
         // ===================================================================
-        // 1. 全局导航切换 + 许可码验证
+        // 1. 全局导航切换 + 许可码验证（带缓存）
         // ===================================================================
         document.addEventListener('DOMContentLoaded', function() {
             const tabs = document.querySelectorAll('.nav-tab');
@@ -877,6 +878,39 @@
 
             let pendingPage = null;
 
+            // ---- 许可缓存 ----
+            function getLicenseCache() {
+                try {
+                    const data = sessionStorage.getItem('gas_license');
+                    if (!data) return null;
+                    const parsed = JSON.parse(data);
+                    if (parsed.key === GAS_LICENSE_KEY) {
+                        const elapsed = (Date.now() - parsed.timestamp) / (1000 * 60 * 60);
+                        if (elapsed < LICENSE_VALID_HOURS) {
+                            return parsed;
+                        } else {
+                            sessionStorage.removeItem('gas_license');
+                            return null;
+                        }
+                    }
+                    return null;
+                } catch {
+                    return null;
+                }
+            }
+
+            function setLicenseCache() {
+                sessionStorage.setItem('gas_license', JSON.stringify({
+                    key: GAS_LICENSE_KEY,
+                    timestamp: Date.now()
+                }));
+            }
+
+            function isLicenseValid() {
+                return getLicenseCache() !== null;
+            }
+
+            // ---- 弹窗控制 ----
             function closeLicenseDialog() {
                 licenseOverlay.classList.remove('active');
                 licenseInput.value = '';
@@ -884,16 +918,28 @@
                 pendingPage = null;
             }
 
-            function verifyLicense(callback) {
-                const input = licenseInput.value.trim();
-                if (input === GAS_LICENSE_KEY) {
-                    closeLicenseDialog();
-                    callback(true);
-                } else {
-                    licenseError.textContent = '❌ 许可码错误，请重新输入';
-                    licenseInput.value = '';
-                    licenseInput.focus();
-                    callback(false);
+            function showLicenseDialog() {
+                licenseError.textContent = '';
+                licenseInput.value = '';
+                licenseOverlay.classList.add('active');
+                setTimeout(() => licenseInput.focus(), 100);
+            }
+
+            // ---- 验证与跳转 ----
+            function verifyAndSwitch(page) {
+                if (page === 'drill') {
+                    doSwitchPage(page);
+                    return;
+                }
+                if (page === 'gas') {
+                    // 检查缓存
+                    if (isLicenseValid()) {
+                        doSwitchPage(page);
+                        return;
+                    }
+                    // 无有效缓存，弹出输入框
+                    pendingPage = page;
+                    showLicenseDialog();
                 }
             }
 
@@ -909,32 +955,26 @@
                 }
             }
 
-            function switchPage(page) {
-                if (page === 'drill') {
-                    doSwitchPage(page);
-                    return;
-                }
-                if (page === 'gas') {
-                    if (licenseOverlay.classList.contains('active')) return;
-                    pendingPage = page;
-                    licenseError.textContent = '';
-                    licenseInput.value = '';
-                    licenseOverlay.classList.add('active');
-                    setTimeout(() => licenseInput.focus(), 100);
-                }
-            }
-
+            // ---- 事件绑定 ----
             licenseConfirm.addEventListener('click', function() {
-                verifyLicense(function(success) {
-                    if (success && pendingPage) {
+                const input = licenseInput.value.trim();
+                if (input === GAS_LICENSE_KEY) {
+                    setLicenseCache();
+                    closeLicenseDialog();
+                    if (pendingPage) {
                         doSwitchPage(pendingPage);
                         pendingPage = null;
                     }
-                });
+                } else {
+                    licenseError.textContent = '❌ 许可码错误，请重新输入';
+                    licenseInput.value = '';
+                    licenseInput.focus();
+                }
             });
 
             licenseCancel.addEventListener('click', function() {
                 closeLicenseDialog();
+                // 如果当前没有任何页面激活，切换到钻孔
                 if (!panels.drill.classList.contains('active') && !panels.gas.classList.contains('active')) {
                     doSwitchPage('drill');
                 }
@@ -946,15 +986,17 @@
                 }
             });
 
+            // 导航点击
             tabs.forEach(tab => {
                 tab.addEventListener('click', function(e) {
                     const page = this.dataset.page;
-                    if (page) switchPage(page);
+                    if (page) verifyAndSwitch(page);
                 });
             });
 
+            // 默认钻孔
             doSwitchPage('drill');
-            window._switchPage = switchPage;
+            window._switchPage = verifyAndSwitch;
         });
 
         // ===================================================================
@@ -2082,7 +2124,7 @@
         })();
 
         // ===================================================================
-        // 3. 气体成分分析（多工作表 + 近三天）
+        // 3. 气体成分分析（多工作表 + 近三天 + 颜色按气体 + 线型按地点）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -2101,16 +2143,29 @@
             const GROUP2 = ['O2', 'N2'];
             const GROUP3 = ['CH4', 'CO2'];
             const GROUP4 = ['C2H2', 'C2H4', 'C2H6'];
-            const COLOR_PALETTE = [
-                '#3498db', '#e74c3c', '#2ecc71', '#f39c12',
-                '#9b59b6', '#1abc9c', '#e67e22', '#e84393',
-                '#00b894', '#fd79a8', '#0984e3', '#fdcb6e'
-            ];
-            const DASH_STYLES = [
-                [],
-                [5, 5],
-                [2, 2],
-                [5, 3, 1, 3]
+
+            // ---- 颜色按气体固定 ----
+            const GAS_COLORS = {
+                N2: '#3498db',
+                CH4: '#e74c3c',
+                C2H2: '#f39c12',
+                O2: '#9b59b6',
+                C2H6: '#1abc9c',
+                CO: '#e67e22',
+                C2H4: '#2ecc71',
+                CO2: '#e84393'
+            };
+
+            // ---- 线型按地点 ----
+            const LOCATION_DASH_STYLES = [
+                [], // 地点1 实线
+                [5, 5], // 地点2 虚线
+                [2, 2], // 地点3 点线
+                [5, 3, 1, 3], // 地点4 点划线
+                [10, 5], // 地点5 长虚线
+                [2, 4], // 地点6 短虚线
+                [8, 4, 2, 4], // 地点7 组合
+                [4, 2, 4, 2] // 地点8 点线
             ];
 
             // ---- DOM 引用 ----
@@ -2185,7 +2240,7 @@
                 return null;
             }
 
-            // ---- 加载数据（多工作表支持） ----
+            // ---- 加载数据（多工作表） ----
             async function loadGasDataFromFile() {
                 try {
                     const response = await fetch('cfdata.xlsx?t=' + Date.now());
@@ -2194,25 +2249,18 @@
                     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
                     const sheetNames = workbook.SheetNames;
 
-                    // 定义三个目标工作表（用户指定的三个采空区）
                     const targetSheets = ['Sheet1', 'Sheet2', 'Sheet3'];
-                    // 也可支持实际的工作表名称（如用户使用了中文名称）
-                    // 同时支持实际名称：12802采空区、12803采空区（回风巷）、12803采空区（运输巷）
                     const sheetAliases = {
                         'Sheet1': '12802采空区',
                         'Sheet2': '12803采空区（回风巷）',
                         'Sheet3': '12803采空区（运输巷）'
                     };
-
-                    // 如果用户使用中文名称，也尝试匹配
                     const chineseNames = ['12802采空区', '12803采空区（回风巷）', '12803采空区（运输巷）'];
 
                     let allParsed = [];
                     let loadedCount = 0;
 
-                    // 遍历所有工作表
                     for (let sheetName of sheetNames) {
-                        // 判断是否为目标工作表：Sheet1/Sheet2/Sheet3 或中文名称
                         let isTarget = false;
                         let defaultLocation = '';
                         if (targetSheets.includes(sheetName)) {
@@ -2221,15 +2269,10 @@
                         } else if (chineseNames.includes(sheetName)) {
                             isTarget = true;
                             defaultLocation = sheetName;
-                        } else {
-                            // 如果工作表名称包含"12802"或"12803"也尝试识别
-                            if (sheetName.includes('12802') || sheetName.includes('12803')) {
-                                isTarget = true;
-                                defaultLocation = sheetName;
-                            }
+                        } else if (sheetName.includes('12802') || sheetName.includes('12803')) {
+                            isTarget = true;
+                            defaultLocation = sheetName;
                         }
-
-                        // 如果不是目标工作表，跳过
                         if (!isTarget) continue;
 
                         const sheet = workbook.Sheets[sheetName];
@@ -2247,9 +2290,7 @@
                             continue;
                         }
 
-                        // 解析数据
                         for (let row of rows) {
-                            // 地点：优先从列读取，若无则使用工作表默认地点
                             let loc = '';
                             if (locKey) {
                                 loc = String(row[locKey] || '').trim();
@@ -2275,7 +2316,7 @@
                                 datetime: dt.full,
                                 cycle: cycle,
                                 _dateObj: new Date(dt.date + 'T' + dt.time),
-                                _sourceSheet: sheetName // 记录来源工作表
+                                _sourceSheet: sheetName
                             };
                             let hasGas = false;
                             for (let g of gasKeys) {
@@ -2297,7 +2338,7 @@
                         throw new Error('所有目标工作表均无有效数据，请检查 Sheet1/Sheet2/Sheet3 是否存在且格式正确');
                     }
 
-                    // 如果没有循环次数列，按地点和日期时间排序后生成循环序号
+                    // 自动生成循环次数
                     const hasCycle = allParsed.some(r => r.cycle > 0);
                     if (!hasCycle) {
                         const groups = {};
@@ -2363,7 +2404,7 @@
                 dom.gasTimeRange.value = 'today';
             }
 
-            // ---- 日期范围计算（新增近三天） ----
+            // ---- 日期范围 ----
             function getDateRangeFromMode(mode, startDate, endDate) {
                 const now = new Date();
                 const today = now.toISOString().slice(0, 10);
@@ -2477,7 +2518,6 @@
 
                 const detailMode = dom.gasDetailMode.value;
 
-                // 多天模式：近三天、近一周、近一月、所有日期、自定义超过2天
                 const isMultiDay = (mode === 'three_days' || mode === 'week' || mode === 'month' || mode === 'all') ||
                     (range.start !== range.end && range.start !== '' && range.end !== '' && !isSingleDay && !isTwoDays);
 
@@ -2541,6 +2581,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
+            // ---- 图表渲染（颜色按气体，线型按地点） ----
             function renderGasCharts(data) {
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
@@ -2586,15 +2627,13 @@
                 }
 
                 const locations = [...new Set(data.map(r => r.location))];
-                const colorMap = {};
+                // 为每个地点分配线型
+                const locationDashMap = {};
                 locations.forEach((loc, idx) => {
-                    colorMap[loc] = COLOR_PALETTE[idx % COLOR_PALETTE.length];
-                });
-                const dashMap = {};
-                GAS_NAMES.forEach((g, idx) => {
-                    dashMap[g] = DASH_STYLES[idx % DASH_STYLES.length];
+                    locationDashMap[loc] = LOCATION_DASH_STYLES[idx % LOCATION_DASH_STYLES.length];
                 });
 
+                // 构建标签
                 let labels = [];
                 const isHourlyMode = (detailMode === 'hourly' && dom.gasDetailToggleGroup.classList.contains('visible'));
                 if (isHourlyMode) {
@@ -2610,11 +2649,12 @@
                     labels = cycles.map(c => c.toString());
                 }
 
+                // ---- 构建数据集（同气体同颜色，线型按地点） ----
                 function buildDatasets(group) {
                     const datasets = [];
                     for (let loc of locations) {
-                        const color = colorMap[loc];
                         const locData = data.filter(r => r.location === loc);
+                        const dash = locationDashMap[loc] || [];
                         for (let gas of group) {
                             let gasValues;
                             if (isHourlyMode) {
@@ -2629,7 +2669,7 @@
                                     return row ? row[gas] : null;
                                 });
                             }
-                            const dash = dashMap[gas] || [];
+                            const color = GAS_COLORS[gas] || '#888888';
                             const label = `${loc} - ${GAS_LABELS[gas]}`;
                             let unit = (group === GROUP1 || group === GROUP4) ? 'ppm' : '%';
                             datasets.push({
@@ -2715,13 +2755,14 @@
                 gasChart3 = renderChart('gas-chart-canvas3', GROUP3, '%', 5);
                 gasChart4 = renderChart('gas-chart-canvas4', GROUP4, 'ppm', 2);
 
+                // ---- 图例（显示气体颜色 + 地点线型） ----
                 function buildLegend(group) {
                     const items = [];
                     for (let loc of locations) {
-                        const color = colorMap[loc];
+                        const dash = locationDashMap[loc] || [];
+                        const dashStyle = dash.length ? 'dashed' : 'solid';
                         for (let gas of group) {
-                            const dash = dashMap[gas] || [];
-                            const dashStyle = dash.length ? 'dashed' : 'solid';
+                            const color = GAS_COLORS[gas] || '#888888';
                             const lineStyle = dash.length ? `border-bottom: 2px ${dashStyle} ${color};` :
                                 `border-bottom: 2px solid ${color};`;
                             items.push(
@@ -2740,6 +2781,7 @@
                 dom.gasChartLegend4.innerHTML = buildLegend(GROUP4);
             }
 
+            // ---- 表格 ----
             function renderGasTable(data) {
                 const tbody = dom.gasTableBody;
                 if (!tbody) return;
@@ -2774,6 +2816,7 @@
                 tbody.innerHTML = html;
             }
 
+            // ---- 分析报告 ----
             function renderGasAnalysis(data) {
                 const container = dom.gasAnalysisContent;
                 if (!container) return;
@@ -2902,6 +2945,7 @@
             }
             window._gasRefresh = refreshGasAll;
 
+            // ---- 导出 ----
             function exportCSV() {
                 if (gasFiltered.length === 0) { alert('无数据可导出'); return; }
                 let csv = '\uFEFF';
