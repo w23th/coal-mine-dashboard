@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js">
     </script>
     <style>
-        /* ===== 全部样式（与之前完全一致） ===== */
+        /* ===== 全部样式 ===== */
         * {
             margin: 0;
             padding: 0;
@@ -517,11 +517,95 @@
         .detail-toggle.visible {
             display: block;
         }
+        /* 许可码弹窗样式 */
+        .license-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+        }
+        .license-overlay.active {
+            display: flex;
+        }
+        .license-dialog {
+            background: #1e3a5a;
+            padding: 30px 40px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        .license-dialog h3 {
+            color: #fff;
+            margin-bottom: 10px;
+            font-size: 1.4rem;
+        }
+        .license-dialog p {
+            color: #aac;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+        .license-dialog input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid #3a5a77;
+            background: rgba(25, 40, 55, 0.9);
+            color: #f0f0f0;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .license-dialog input:focus {
+            border-color: #3498db;
+        }
+        .license-dialog .btn-row {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        .license-dialog .btn-row button {
+            padding: 10px 30px;
+            border-radius: 10px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: opacity 0.2s;
+        }
+        .license-dialog .btn-row button:hover {
+            opacity: 0.85;
+        }
+        .license-dialog .btn-confirm {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: #fff;
+        }
+        .license-dialog .btn-cancel {
+            background: rgba(255, 255, 255, 0.1);
+            color: #aac;
+            border: 1px solid #3a5a77;
+        }
+        .license-error {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 8px;
+            min-height: 20px;
+        }
     </style>
 </head>
 <body>
 
-    <!-- 加载遮罩 -->
+    <!-- ===== 加载遮罩 ===== -->
     <div class="system-loading" id="system-loading">
         <div class="loading-spinner"></div>
         <h3>营脚煤矿钻孔抽采数据</h3>
@@ -531,6 +615,21 @@
     </div>
     <div class="status-indicator no-print"><div class="led" id="status-led"></div><span id="status-text">加载中</span></div>
 
+    <!-- ===== 许可码验证弹窗 ===== -->
+    <div class="license-overlay" id="license-overlay">
+        <div class="license-dialog">
+            <h3><i class="fas fa-lock"></i> 气体分析模块</h3>
+            <p>请输入许可码以访问气体成分分析数据</p>
+            <input type="password" id="license-input" placeholder="请输入许可码" />
+            <div class="license-error" id="license-error"></div>
+            <div class="btn-row">
+                <button class="btn-cancel" id="license-cancel">取消</button>
+                <button class="btn-confirm" id="license-confirm">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 主容器 ===== -->
     <div class="container" id="main-container" style="display: none;">
         <div class="header no-print">
             <h1><i class="fas fa-chart-line"></i> 营脚煤矿钻孔抽采数据分析</h1>
@@ -636,7 +735,7 @@
                     <div>
                         <i class="fas fa-file-excel" style="color:#2ecc71;"></i>
                         <strong>数据源</strong>
-                        <span class="badge" id="gas-data-status">cfdata.xlsx</span>
+                        <span class="badge" id="gas-data-status">cfdata.xlsx (3个工作表)</span>
                     </div>
                     <div class="flex-wrap">
                         <span class="text-muted"><i class="fas fa-map-pin"></i> 地点：<span id="gas-loc-count">0</span> 个</span>
@@ -657,6 +756,7 @@
                         <label>时间范围</label>
                         <select id="gas-time-range">
                             <option value="today">当天</option>
+                            <option value="three_days">近三天</option>
                             <option value="week">近一周</option>
                             <option value="month">近一月</option>
                             <option value="all">所有日期</option>
@@ -675,7 +775,6 @@
                     <button class="btn-success" id="gas-export-csv"><i class="fas fa-file-csv"></i> 导出CSV</button>
                     <button class="btn-warning" id="gas-print"><i class="fas fa-print"></i> 打印</button>
                 </div>
-                <!-- 详细/粗略切换（当天或两天内可见） -->
                 <div class="control-group detail-toggle" id="gas-detail-toggle-group" style="min-width:120px; flex:0 1 auto; margin-top:10px;">
                     <label>显示模式</label>
                     <select id="gas-detail-mode">
@@ -694,8 +793,6 @@
                     <div class="metric-box"><div class="label">检测点数</div><div class="metric-value" id="gas-point-count">-</div></div>
                 </div>
             </div>
-
-            <!-- 四个图表 -->
             <div class="charts-grid">
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
@@ -730,7 +827,6 @@
                     <div class="gas-legend" id="gas-chart-legend4"></div>
                 </div>
             </div>
-
             <div class="card">
                 <div class="table-header">
                     <h3><i class="fas fa-table"></i> 气体成分数据明细</h3>
@@ -760,7 +856,12 @@
 
     <script>
         // ===================================================================
-        // 全局导航切换
+        // 0. 许可码配置（管理员在此修改）
+        // ===================================================================
+        const GAS_LICENSE_KEY = 'yj2026'; // ← 修改此值为您的自定义许可码
+
+        // ===================================================================
+        // 1. 全局导航切换 + 许可码验证
         // ===================================================================
         document.addEventListener('DOMContentLoaded', function() {
             const tabs = document.querySelectorAll('.nav-tab');
@@ -768,8 +869,35 @@
                 drill: document.getElementById('page-drill'),
                 gas: document.getElementById('page-gas')
             };
+            const licenseOverlay = document.getElementById('license-overlay');
+            const licenseInput = document.getElementById('license-input');
+            const licenseError = document.getElementById('license-error');
+            const licenseConfirm = document.getElementById('license-confirm');
+            const licenseCancel = document.getElementById('license-cancel');
 
-            function switchPage(page) {
+            let pendingPage = null;
+
+            function closeLicenseDialog() {
+                licenseOverlay.classList.remove('active');
+                licenseInput.value = '';
+                licenseError.textContent = '';
+                pendingPage = null;
+            }
+
+            function verifyLicense(callback) {
+                const input = licenseInput.value.trim();
+                if (input === GAS_LICENSE_KEY) {
+                    closeLicenseDialog();
+                    callback(true);
+                } else {
+                    licenseError.textContent = '❌ 许可码错误，请重新输入';
+                    licenseInput.value = '';
+                    licenseInput.focus();
+                    callback(false);
+                }
+            }
+
+            function doSwitchPage(page) {
                 tabs.forEach(tab => {
                     tab.classList.toggle('active', tab.dataset.page === page);
                 });
@@ -781,6 +909,43 @@
                 }
             }
 
+            function switchPage(page) {
+                if (page === 'drill') {
+                    doSwitchPage(page);
+                    return;
+                }
+                if (page === 'gas') {
+                    if (licenseOverlay.classList.contains('active')) return;
+                    pendingPage = page;
+                    licenseError.textContent = '';
+                    licenseInput.value = '';
+                    licenseOverlay.classList.add('active');
+                    setTimeout(() => licenseInput.focus(), 100);
+                }
+            }
+
+            licenseConfirm.addEventListener('click', function() {
+                verifyLicense(function(success) {
+                    if (success && pendingPage) {
+                        doSwitchPage(pendingPage);
+                        pendingPage = null;
+                    }
+                });
+            });
+
+            licenseCancel.addEventListener('click', function() {
+                closeLicenseDialog();
+                if (!panels.drill.classList.contains('active') && !panels.gas.classList.contains('active')) {
+                    doSwitchPage('drill');
+                }
+            });
+
+            licenseInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    licenseConfirm.click();
+                }
+            });
+
             tabs.forEach(tab => {
                 tab.addEventListener('click', function(e) {
                     const page = this.dataset.page;
@@ -788,12 +953,12 @@
                 });
             });
 
-            switchPage('drill');
+            doSwitchPage('drill');
             window._switchPage = switchPage;
         });
 
         // ===================================================================
-        // 第一部分：钻孔抽采数据分析（完整功能）
+        // 2. 钻孔抽采数据分析（完整功能）
         // ===================================================================
         (function drillModule() {
             function getElement(id) {
@@ -1131,7 +1296,6 @@
                 return str;
             }
 
-            // 钻孔分析生成函数（含负压·流量影响，流量阈值0.5）
             function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
                 if (!drillDataPoints || drillDataPoints.length === 0) {
                     return `📊 当前筛选条件：地点=${location}，模式=${mode === 'single' ? `单孔 ${selectedDrill}` : '全部钻孔'}\n暂无检测数据，无法分析。`;
@@ -1487,9 +1651,6 @@
                 return output;
             }
 
-            // ============================================================
-            // 渲染函数
-            // ============================================================
             function renderCharts(drillDataPoints) {
                 if (drillDataPoints.length === 0) {
                     if (concentrationChart) concentrationChart.destroy();
@@ -1867,7 +2028,6 @@
                 });
             }
 
-            // 启动钻孔模块
             async function initDrill() {
                 try {
                     if (dom.loadingProgress) dom.loadingProgress.style.width = '20%';
@@ -1922,7 +2082,7 @@
         })();
 
         // ===================================================================
-        // 第二部分：气体成分分析（详细按循环，粗略按小时，报告氮气变化小于1%不分析）
+        // 3. 气体成分分析（多工作表 + 近三天）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -1937,13 +2097,10 @@
                 C2H4: '乙烯',
                 CO2: '二氧化碳'
             };
-
-            // 四组分组
-            const GROUP1 = ['CO']; // ppm
-            const GROUP2 = ['O2', 'N2']; // %
-            const GROUP3 = ['CH4', 'CO2']; // %
-            const GROUP4 = ['C2H2', 'C2H4', 'C2H6']; // ppm
-
+            const GROUP1 = ['CO'];
+            const GROUP2 = ['O2', 'N2'];
+            const GROUP3 = ['CH4', 'CO2'];
+            const GROUP4 = ['C2H2', 'C2H4', 'C2H6'];
             const COLOR_PALETTE = [
                 '#3498db', '#e74c3c', '#2ecc71', '#f39c12',
                 '#9b59b6', '#1abc9c', '#e67e22', '#e84393',
@@ -2028,68 +2185,123 @@
                 return null;
             }
 
-            // ---- 加载数据 ----
+            // ---- 加载数据（多工作表支持） ----
             async function loadGasDataFromFile() {
                 try {
                     const response = await fetch('cfdata.xlsx?t=' + Date.now());
                     if (!response.ok) throw new Error(`HTTP ${response.status} - 文件不存在或无法访问`);
                     const arrayBuffer = await response.arrayBuffer();
                     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-                    if (rows.length === 0) throw new Error('工作表为空');
+                    const sheetNames = workbook.SheetNames;
 
-                    const headers = Object.keys(rows[0]);
-                    const locKey = headers.find(h => /地点|位置|location/i.test(h));
-                    const dateKey = headers.find(h => /日期|时间|date/i.test(h));
-                    const cycleKey = headers.find(h => /循环|次数|cycle/i.test(h));
-                    const gasKeys = GAS_NAMES.filter(g => headers.some(h => h.toUpperCase().includes(g.toUpperCase())));
+                    // 定义三个目标工作表（用户指定的三个采空区）
+                    const targetSheets = ['Sheet1', 'Sheet2', 'Sheet3'];
+                    // 也可支持实际的工作表名称（如用户使用了中文名称）
+                    // 同时支持实际名称：12802采空区、12803采空区（回风巷）、12803采空区（运输巷）
+                    const sheetAliases = {
+                        'Sheet1': '12802采空区',
+                        'Sheet2': '12803采空区（回风巷）',
+                        'Sheet3': '12803采空区（运输巷）'
+                    };
 
-                    if (!locKey || !dateKey || gasKeys.length === 0) {
-                        throw new Error('未识别的数据格式。需要包含：采样地点、采样日期，以及至少一种气体列');
-                    }
+                    // 如果用户使用中文名称，也尝试匹配
+                    const chineseNames = ['12802采空区', '12803采空区（回风巷）', '12803采空区（运输巷）'];
 
-                    const parsed = [];
-                    for (let row of rows) {
-                        const loc = String(row[locKey] || '').trim();
-                        if (!loc) continue;
-                        const dateRaw = String(row[dateKey] || '').trim();
-                        const dt = parseDateTime(dateRaw);
-                        if (!dt) continue;
-                        let cycle = 0;
-                        if (cycleKey) {
-                            const c = parseInt(row[cycleKey]);
-                            if (!isNaN(c)) cycle = c;
-                        }
+                    let allParsed = [];
+                    let loadedCount = 0;
 
-                        const entry = {
-                            location: loc,
-                            date: dt.date,
-                            time: dt.time,
-                            datetime: dt.full,
-                            cycle: cycle,
-                            _dateObj: new Date(dt.date + 'T' + dt.time)
-                        };
-                        let hasGas = false;
-                        for (let g of gasKeys) {
-                            const val = parseFloat(row[g]);
-                            if (!isNaN(val) && val >= 0) {
-                                entry[g] = val;
-                                hasGas = true;
+                    // 遍历所有工作表
+                    for (let sheetName of sheetNames) {
+                        // 判断是否为目标工作表：Sheet1/Sheet2/Sheet3 或中文名称
+                        let isTarget = false;
+                        let defaultLocation = '';
+                        if (targetSheets.includes(sheetName)) {
+                            isTarget = true;
+                            defaultLocation = sheetAliases[sheetName] || sheetName;
+                        } else if (chineseNames.includes(sheetName)) {
+                            isTarget = true;
+                            defaultLocation = sheetName;
+                        } else {
+                            // 如果工作表名称包含"12802"或"12803"也尝试识别
+                            if (sheetName.includes('12802') || sheetName.includes('12803')) {
+                                isTarget = true;
+                                defaultLocation = sheetName;
                             }
                         }
-                        for (let g of GAS_NAMES) {
-                            if (!(g in entry)) entry[g] = 0;
+
+                        // 如果不是目标工作表，跳过
+                        if (!isTarget) continue;
+
+                        const sheet = workbook.Sheets[sheetName];
+                        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+                        if (rows.length === 0) continue;
+
+                        const headers = Object.keys(rows[0]);
+                        const locKey = headers.find(h => /地点|位置|location/i.test(h));
+                        const dateKey = headers.find(h => /日期|时间|date/i.test(h));
+                        const cycleKey = headers.find(h => /循环|次数|cycle/i.test(h));
+                        const gasKeys = GAS_NAMES.filter(g => headers.some(h => h.toUpperCase().includes(g.toUpperCase())));
+
+                        if (!dateKey || gasKeys.length === 0) {
+                            console.warn(`工作表 ${sheetName} 缺少必要的列，跳过`);
+                            continue;
                         }
-                        if (hasGas) parsed.push(entry);
+
+                        // 解析数据
+                        for (let row of rows) {
+                            // 地点：优先从列读取，若无则使用工作表默认地点
+                            let loc = '';
+                            if (locKey) {
+                                loc = String(row[locKey] || '').trim();
+                            }
+                            if (!loc) {
+                                loc = defaultLocation;
+                            }
+
+                            const dateRaw = String(row[dateKey] || '').trim();
+                            const dt = parseDateTime(dateRaw);
+                            if (!dt) continue;
+
+                            let cycle = 0;
+                            if (cycleKey) {
+                                const c = parseInt(row[cycleKey]);
+                                if (!isNaN(c)) cycle = c;
+                            }
+
+                            const entry = {
+                                location: loc,
+                                date: dt.date,
+                                time: dt.time,
+                                datetime: dt.full,
+                                cycle: cycle,
+                                _dateObj: new Date(dt.date + 'T' + dt.time),
+                                _sourceSheet: sheetName // 记录来源工作表
+                            };
+                            let hasGas = false;
+                            for (let g of gasKeys) {
+                                const val = parseFloat(row[g]);
+                                if (!isNaN(val) && val >= 0) {
+                                    entry[g] = val;
+                                    hasGas = true;
+                                }
+                            }
+                            for (let g of GAS_NAMES) {
+                                if (!(g in entry)) entry[g] = 0;
+                            }
+                            if (hasGas) allParsed.push(entry);
+                        }
+                        loadedCount++;
                     }
 
-                    if (parsed.length === 0) throw new Error('解析后无有效数据');
+                    if (allParsed.length === 0) {
+                        throw new Error('所有目标工作表均无有效数据，请检查 Sheet1/Sheet2/Sheet3 是否存在且格式正确');
+                    }
 
                     // 如果没有循环次数列，按地点和日期时间排序后生成循环序号
-                    if (!cycleKey) {
+                    const hasCycle = allParsed.some(r => r.cycle > 0);
+                    if (!hasCycle) {
                         const groups = {};
-                        for (let r of parsed) {
+                        for (let r of allParsed) {
                             const key = r.location + '|' + r.date;
                             if (!groups[key]) groups[key] = [];
                             groups[key].push(r);
@@ -2101,8 +2313,8 @@
                         }
                     }
 
-                    gasRawData = parsed;
-                    dom.gasDataStatus.textContent = 'cfdata.xlsx ✓ (' + parsed.length + ' 条)';
+                    gasRawData = allParsed;
+                    dom.gasDataStatus.textContent = 'cfdata.xlsx ✓ (' + loadedCount + ' 个工作表, ' + allParsed.length + ' 条)';
                     dom.gasDataStatus.style.color = '#2ecc71';
                     updateGasMetaInfo();
                     populateGasLocationSelect();
@@ -2113,7 +2325,9 @@
                     dom.gasDataStatus.textContent = '加载失败: ' + err.message;
                     dom.gasDataStatus.style.color = '#e74c3c';
                     console.error(err);
-                    dom.gasAnalysisContent.innerText = '❌ 无法加载 cfdata.xlsx，请检查文件是否存在且格式正确。\n错误信息：' + err.message;
+                    dom.gasAnalysisContent.innerText = '❌ 无法加载 cfdata.xlsx，请检查文件是否存在且格式正确。\n' +
+                        '要求：包含 Sheet1、Sheet2、Sheet3 三个工作表，分别对应 12802采空区、12803采空区（回风巷）、12803采空区（运输巷）。\n' +
+                        '错误信息：' + err.message;
                     return false;
                 }
             }
@@ -2149,7 +2363,7 @@
                 dom.gasTimeRange.value = 'today';
             }
 
-            // ---- 日期范围计算 ----
+            // ---- 日期范围计算（新增近三天） ----
             function getDateRangeFromMode(mode, startDate, endDate) {
                 const now = new Date();
                 const today = now.toISOString().slice(0, 10);
@@ -2157,6 +2371,12 @@
                 switch (mode) {
                     case 'today':
                         start = end = today;
+                        break;
+                    case 'three_days':
+                        end = today;
+                        const threeDaysAgo = new Date(now);
+                        threeDaysAgo.setDate(now.getDate() - 2);
+                        start = threeDaysAgo.toISOString().slice(0, 10);
                         break;
                     case 'week':
                         end = today;
@@ -2183,11 +2403,10 @@
                 return { start, end };
             }
 
-            // ---- 按小时聚合（粗略模式） ----
             function aggregateByHour(data) {
                 const hourMap = new Map();
                 for (let row of data) {
-                    const hour = row.datetime.substring(11, 13); // "HH"
+                    const hour = row.datetime.substring(11, 13);
                     const key = row.location + '|' + row.date + '|' + hour;
                     if (!hourMap.has(key)) {
                         hourMap.set(key, row);
@@ -2203,7 +2422,6 @@
                 return result;
             }
 
-            // ---- 核心数据筛选 ----
             function getFilteredData() {
                 const location = dom.gasLocationSelect.value;
                 let mode = dom.gasTimeRange.value;
@@ -2218,7 +2436,6 @@
 
                 const range = getDateRangeFromMode(mode, startDate, endDate);
 
-                // 1. 按地点和时间筛选
                 let filtered = gasRawData.filter(r => {
                     if (location !== '__ALL__' && r.location !== location) return false;
                     if (range.start && r.date < range.start) return false;
@@ -2226,7 +2443,6 @@
                     return true;
                 });
 
-                // 如果当天无数据，取最近一天
                 const isToday = (mode === 'today') || (range.start === range.end && range.start !== '');
                 if (isToday && filtered.length === 0) {
                     const dates = gasRawData.map(r => r.date).sort();
@@ -2240,10 +2456,8 @@
                     }
                 }
 
-                // 按时间排序
                 filtered.sort((a, b) => a._dateObj - b._dateObj);
 
-                // 判断是否启用详细/粗略切换
                 const isSingleDay = (range.start === range.end && range.start !== '');
                 const isTwoDays = (() => {
                     if (!range.start || !range.end) return false;
@@ -2263,17 +2477,17 @@
 
                 const detailMode = dom.gasDetailMode.value;
 
-                // 多天模式（week/month/all/custom>2天）：按日聚合
-                const isMultiDay = (range.start !== range.end && range.start !== '' && range.end !== '' && !isSingleDay && !
-                    isTwoDays);
-                if (mode === 'week' || mode === 'month' || mode === 'all' || isMultiDay) {
+                // 多天模式：近三天、近一周、近一月、所有日期、自定义超过2天
+                const isMultiDay = (mode === 'three_days' || mode === 'week' || mode === 'month' || mode === 'all') ||
+                    (range.start !== range.end && range.start !== '' && range.end !== '' && !isSingleDay && !isTwoDays);
+
+                if (isMultiDay) {
                     return aggregateByDay(filtered);
                 } else {
-                    // 当天或<=2天
                     if (detailMode === 'hourly') {
                         return aggregateByHour(filtered);
                     } else {
-                        return filtered; // 详细（按循环）
+                        return filtered;
                     }
                 }
             }
@@ -2296,7 +2510,6 @@
                 return result;
             }
 
-            // ---- 统计 ----
             function updateStats(data) {
                 if (data.length === 0) {
                     dom.gasAvgO2.textContent = '-';
@@ -2328,9 +2541,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
-            // ---- 图表渲染 ----
             function renderGasCharts(data) {
-                // 销毁旧图
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
                 if (gasChart2) { gasChart2.destroy();
@@ -2343,6 +2554,7 @@
                 const mode = dom.gasTimeRange.value;
                 const modeLabel = {
                     today: '当天',
+                    three_days: '近三天',
                     week: '近一周',
                     month: '近一月',
                     all: '所有日期',
@@ -2373,7 +2585,6 @@
                     return;
                 }
 
-                // 获取所有地点
                 const locations = [...new Set(data.map(r => r.location))];
                 const colorMap = {};
                 locations.forEach((loc, idx) => {
@@ -2384,25 +2595,21 @@
                     dashMap[g] = DASH_STYLES[idx % DASH_STYLES.length];
                 });
 
-                // ---- 确定横坐标 ----
                 let labels = [];
                 const isHourlyMode = (detailMode === 'hourly' && dom.gasDetailToggleGroup.classList.contains('visible'));
                 if (isHourlyMode) {
-                    // 粗略模式：按小时显示，横坐标为日期+小时
                     const hourSet = new Set();
                     for (let r of data) {
-                        const hourLabel = r.datetime.substring(0, 16); // "YYYY-MM-DD HH:MM"
+                        const hourLabel = r.datetime.substring(0, 16);
                         hourSet.add(hourLabel);
                     }
                     labels = Array.from(hourSet).sort();
                 } else {
-                    // 详细模式：按循环次数（去重排序）
                     const cycles = [...new Set(data.map(r => r.cycle))];
                     cycles.sort((a, b) => a - b);
                     labels = cycles.map(c => c.toString());
                 }
 
-                // ---- 构建数据集 ----
                 function buildDatasets(group) {
                     const datasets = [];
                     for (let loc of locations) {
@@ -2411,13 +2618,11 @@
                         for (let gas of group) {
                             let gasValues;
                             if (isHourlyMode) {
-                                // 按小时对齐
                                 gasValues = labels.map(label => {
                                     const row = locData.find(r => r.datetime.substring(0, 16) === label);
                                     return row ? row[gas] : null;
                                 });
                             } else {
-                                // 按循环次数对齐
                                 gasValues = labels.map(cycleStr => {
                                     const cycle = parseInt(cycleStr);
                                     const row = locData.find(r => r.cycle === cycle);
@@ -2465,7 +2670,6 @@
                                             if (!items.length) return '';
                                             const index = items[0].dataIndex;
                                             const label = labels[index];
-                                            // 找到对应的数据行
                                             let row = null;
                                             if (isHourlyMode) {
                                                 row = data.find(r => r.datetime.substring(0, 16) === label);
@@ -2536,7 +2740,6 @@
                 dom.gasChartLegend4.innerHTML = buildLegend(GROUP4);
             }
 
-            // ---- 表格 ----
             function renderGasTable(data) {
                 const tbody = dom.gasTableBody;
                 if (!tbody) return;
@@ -2571,7 +2774,6 @@
                 tbody.innerHTML = html;
             }
 
-            // ---- 分析报告（修改：氮气变化小于1%时不纳入分析） ----
             function renderGasAnalysis(data) {
                 const container = dom.gasAnalysisContent;
                 if (!container) return;
@@ -2584,6 +2786,7 @@
                 const mode = dom.gasTimeRange.value;
                 const modeLabel = {
                     today: '当天',
+                    three_days: '近三天',
                     week: '近一周',
                     month: '近一月',
                     all: '所有日期',
@@ -2605,6 +2808,7 @@
                 reportLines.push(`📅 报告时间：${new Date().toLocaleString()}`);
                 reportLines.push(`⏱  时间范围：${modeLabel}`);
                 reportLines.push(`📊 数据点数：${data.length}`);
+                reportLines.push(`📁 数据来源：${[...new Set(data.map(r => r._sourceSheet || ''))].filter(s => s).join(', ')}`);
                 reportLines.push(`═══════════════════════════════════════════════════════════════════\n`);
 
                 reportLines.push(`【最新监测数据】 (${latest.datetime})`);
@@ -2640,12 +2844,10 @@
                     reportLines.push(`      O₂变化：${first.O2.toFixed(5)}% → ${last.O2.toFixed(5)}% (${o2Diff > 0 ? '+' : ''}${o2Diff.toFixed(5)}%, ${o2Pct > 0 ? '+' : ''}${o2Pct.toFixed(1)}%)`);
                     reportLines.push(`      CO变化：${first.CO.toFixed(2)}ppm → ${last.CO.toFixed(2)}ppm (${coDiff > 0 ? '+' : ''}${coDiff.toFixed(2)}ppm, ${coPct > 0 ? '+' : ''}${coPct.toFixed(1)}%)`);
 
-                    // ---- 修改诊断逻辑：氮气变化小于1%时不纳入分析 ----
-                    const n2Significant = Math.abs(n2Diff) > 1; // 氮气变化绝对值大于1%视为显著
+                    const n2Significant = Math.abs(n2Diff) > 1;
 
                     let diagnosis = '';
                     if (n2Significant) {
-                        // 氮气变化显著，原有逻辑
                         if (n2Diff > 0 && coDiff < 0) {
                             diagnosis = `✅ 诊断：氮气注入量增加（+${n2Diff.toFixed(5)}%），CO浓度下降，表明注氮有效稀释或惰化了CO，抑制了氧化。`;
                         } else if (n2Diff > 0 && coDiff > 0) {
@@ -2658,7 +2860,6 @@
                             diagnosis = `ℹ️ 诊断：氮气变化与CO变化无明显关联。`;
                         }
                     } else {
-                        // 氮气变化不显著，忽略氮气影响，只根据氧气变化分析
                         diagnosis = `氮气变化较小（${n2Diff.toFixed(5)}%），不纳入原因分析。`;
                         if (o2Diff < 0 && coDiff < 0) {
                             diagnosis += ` 同时氧气下降（${o2Diff.toFixed(5)}%），CO下降，表明采空区惰化效果良好，氧化反应受抑制。`;
@@ -2691,7 +2892,6 @@
                 container.innerText = reportLines.join('\n');
             }
 
-            // ---- 刷新 ----
             function refreshGasAll() {
                 const data = getFilteredData();
                 gasFiltered = data;
@@ -2702,7 +2902,6 @@
             }
             window._gasRefresh = refreshGasAll;
 
-            // ---- 导出 ----
             function exportCSV() {
                 if (gasFiltered.length === 0) { alert('无数据可导出'); return; }
                 let csv = '\uFEFF';
@@ -2740,7 +2939,6 @@
 
             function printPage() { window.print(); }
 
-            // ---- 事件绑定 ----
             function bindGasEvents() {
                 dom.gasApplyBtn.addEventListener('click', function() {
                     const mode = dom.gasTimeRange.value;
@@ -2761,6 +2959,11 @@
                     const today = new Date().toISOString().slice(0, 10);
                     if (mode === 'today') {
                         dom.gasStartDate.value = today;
+                        dom.gasEndDate.value = today;
+                    } else if (mode === 'three_days') {
+                        const d = new Date();
+                        d.setDate(d.getDate() - 2);
+                        dom.gasStartDate.value = d.toISOString().slice(0, 10);
                         dom.gasEndDate.value = today;
                     } else if (mode === 'week') {
                         const d = new Date();
@@ -2805,7 +3008,6 @@
                 });
             }
 
-            // ---- 初始化 ----
             async function initGas() {
                 await loadGasDataFromFile();
                 bindGasEvents();
