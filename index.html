@@ -632,7 +632,7 @@
     <!-- ===== 主容器 ===== -->
     <div class="container" id="main-container" style="display: none;">
         <div class="header no-print">
-            <h1><i class="fas fa-chart-line"></i> 营脚煤矿钻孔抽采数据</h1>
+            <h1><i class="fas fa-chart-line"></i> 营脚煤通防科数据分析</h1>
             <p>营脚煤矿通防科</p>
             <div style="display:flex; justify-content:center; gap:20px; margin-top:12px; flex-wrap:wrap;">
                 <div><i class="fas fa-database"></i> 钻孔总数: <span id="total-drills">0</span></div>
@@ -647,7 +647,6 @@
 
         <!-- ===== 页面1：钻孔抽采数据 ===== -->
         <div class="page-panel active" id="page-drill">
-            <!-- 钻孔数据完整内容（与之前一致） -->
             <div class="card">
                 <div class="controls">
                     <div class="control-group"><label>抽采地点</label><select id="location-select"></select></div>
@@ -2125,7 +2124,7 @@
         })();
 
         // ===================================================================
-        // 3. 气体成分分析（五组图表：CO / 乙烯乙炔乙烷 / N2 / O2 / 甲烷CO2）
+        // 3. 气体成分分析（五组图表，氮气/氧气纵坐标动态调整）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -2588,7 +2587,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
-            // ---- 图表渲染（五组） ----
+            // ---- 图表渲染（五组，氮气/氧气纵坐标动态调整） ----
             function renderGasCharts(data) {
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
@@ -2635,6 +2634,40 @@
                     dom.gasChartLegend4.innerHTML = '';
                     dom.gasChartLegend5.innerHTML = '';
                     return;
+                }
+
+                // ---- 计算氮气、氧气纵坐标范围 ----
+                let n2Values = [];
+                let o2Values = [];
+                for (let r of data) {
+                    if (r.N2 !== undefined && !isNaN(r.N2)) n2Values.push(r.N2);
+                    if (r.O2 !== undefined && !isNaN(r.O2)) o2Values.push(r.O2);
+                }
+
+                let n2Min = 0,
+                    n2Max = 100,
+                    o2Min = 0,
+                    o2Max = 25;
+                if (n2Values.length > 0) {
+                    const minN2 = Math.min(...n2Values);
+                    const maxN2 = Math.max(...n2Values);
+                    n2Min = Math.max(0, minN2 - 1);
+                    n2Max = maxN2 + 1;
+                    // 确保纵坐标区间有足够显示空间
+                    if (n2Max - n2Min < 2) {
+                        n2Min = Math.max(0, n2Min - 0.5);
+                        n2Max = n2Max + 0.5;
+                    }
+                }
+                if (o2Values.length > 0) {
+                    const minO2 = Math.min(...o2Values);
+                    const maxO2 = Math.max(...o2Values);
+                    o2Min = Math.max(0, minO2 - 1);
+                    o2Max = maxO2 + 1;
+                    if (o2Max - o2Min < 2) {
+                        o2Min = Math.max(0, o2Min - 0.5);
+                        o2Max = o2Max + 0.5;
+                    }
                 }
 
                 const locations = [...new Set(data.map(r => r.location))];
@@ -2704,9 +2737,16 @@
                     return datasets;
                 }
 
-                function renderChart(canvasId, group, unitSuffix, decimalPlaces) {
+                // ---- 渲染图表（支持自定义纵坐标） ----
+                function renderChart(canvasId, group, unitSuffix, decimalPlaces, minY, maxY) {
                     const ctx = document.getElementById(canvasId).getContext('2d');
                     const datasets = buildDatasets(group);
+                    const yScale = {};
+                    if (minY !== undefined && maxY !== undefined) {
+                        yScale = { title: { display: true, text: unitSuffix }, min: minY, max: maxY };
+                    } else {
+                        yScale = { title: { display: true, text: unitSuffix }, beginAtZero: true };
+                    }
                     const chart = new Chart(ctx, {
                         type: 'line',
                         data: { labels: labels, datasets: datasets },
@@ -2745,7 +2785,7 @@
                                 }
                             },
                             scales: {
-                                y: { title: { display: true, text: unitSuffix }, beginAtZero: true },
+                                y: yScale,
                                 x: {
                                     ticks: {
                                         maxTicksLimit: 50,
@@ -2761,10 +2801,11 @@
                     return chart;
                 }
 
+                // 各图表渲染（氮气、氧气传入计算后的纵坐标范围）
                 gasChart1 = renderChart('gas-chart-canvas1', GROUP1, 'ppm', 2);
                 gasChart2 = renderChart('gas-chart-canvas2', GROUP2, 'ppm', 2);
-                gasChart3 = renderChart('gas-chart-canvas3', GROUP3, '%', 5);
-                gasChart4 = renderChart('gas-chart-canvas4', GROUP4, '%', 5);
+                gasChart3 = renderChart('gas-chart-canvas3', GROUP3, '%', 5, n2Min, n2Max);
+                gasChart4 = renderChart('gas-chart-canvas4', GROUP4, '%', 5, o2Min, o2Max);
                 gasChart5 = renderChart('gas-chart-canvas5', GROUP5, '%', 5);
 
                 // ---- 图例 ----
