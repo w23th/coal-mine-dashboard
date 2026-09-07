@@ -647,6 +647,7 @@
 
         <!-- ===== 页面1：钻孔抽采数据 ===== -->
         <div class="page-panel active" id="page-drill">
+            <!-- 钻孔数据完整内容（与之前一致） -->
             <div class="card">
                 <div class="controls">
                     <div class="control-group"><label>抽采地点</label><select id="location-select"></select></div>
@@ -793,6 +794,7 @@
                     <div class="metric-box"><div class="label">检测点数</div><div class="metric-value" id="gas-point-count">-</div></div>
                 </div>
             </div>
+            <!-- 五个图表 -->
             <div class="charts-grid">
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
@@ -804,7 +806,7 @@
                 </div>
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
-                        <span>主要气体 (O₂, N₂) [%]</span>
+                        <span>示踪气体 (C₂H₂, C₂H₄, C₂H₆) [ppm]</span>
                         <span class="badge" id="gas-chart-mode-badge2">当天</span>
                     </div>
                     <div class="chart-container"><canvas id="gas-chart-canvas2"></canvas></div>
@@ -812,7 +814,7 @@
                 </div>
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
-                        <span>烃类气体 (CH₄, CO₂) [%]</span>
+                        <span>氮气 (N₂) [%]</span>
                         <span class="badge" id="gas-chart-mode-badge3">当天</span>
                     </div>
                     <div class="chart-container"><canvas id="gas-chart-canvas3"></canvas></div>
@@ -820,11 +822,19 @@
                 </div>
                 <div class="card">
                     <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
-                        <span>示踪气体 (C₂H₂, C₂H₄, C₂H₆) [ppm]</span>
+                        <span>氧气 (O₂) [%]</span>
                         <span class="badge" id="gas-chart-mode-badge4">当天</span>
                     </div>
                     <div class="chart-container"><canvas id="gas-chart-canvas4"></canvas></div>
                     <div class="gas-legend" id="gas-chart-legend4"></div>
+                </div>
+                <div class="card">
+                    <div style="text-align:center; font-weight:bold; margin-bottom:10px;">
+                        <span>烃类气体 (CH₄, CO₂) [%]</span>
+                        <span class="badge" id="gas-chart-mode-badge5">当天</span>
+                    </div>
+                    <div class="chart-container"><canvas id="gas-chart-canvas5"></canvas></div>
+                    <div class="gas-legend" id="gas-chart-legend5"></div>
                 </div>
             </div>
             <div class="card">
@@ -878,7 +888,6 @@
 
             let pendingPage = null;
 
-            // ---- 许可缓存 ----
             function getLicenseCache() {
                 try {
                     const data = sessionStorage.getItem('gas_license');
@@ -910,7 +919,6 @@
                 return getLicenseCache() !== null;
             }
 
-            // ---- 弹窗控制 ----
             function closeLicenseDialog() {
                 licenseOverlay.classList.remove('active');
                 licenseInput.value = '';
@@ -925,19 +933,16 @@
                 setTimeout(() => licenseInput.focus(), 100);
             }
 
-            // ---- 验证与跳转 ----
             function verifyAndSwitch(page) {
                 if (page === 'drill') {
                     doSwitchPage(page);
                     return;
                 }
                 if (page === 'gas') {
-                    // 检查缓存
                     if (isLicenseValid()) {
                         doSwitchPage(page);
                         return;
                     }
-                    // 无有效缓存，弹出输入框
                     pendingPage = page;
                     showLicenseDialog();
                 }
@@ -955,7 +960,6 @@
                 }
             }
 
-            // ---- 事件绑定 ----
             licenseConfirm.addEventListener('click', function() {
                 const input = licenseInput.value.trim();
                 if (input === GAS_LICENSE_KEY) {
@@ -974,7 +978,6 @@
 
             licenseCancel.addEventListener('click', function() {
                 closeLicenseDialog();
-                // 如果当前没有任何页面激活，切换到钻孔
                 if (!panels.drill.classList.contains('active') && !panels.gas.classList.contains('active')) {
                     doSwitchPage('drill');
                 }
@@ -986,7 +989,6 @@
                 }
             });
 
-            // 导航点击
             tabs.forEach(tab => {
                 tab.addEventListener('click', function(e) {
                     const page = this.dataset.page;
@@ -994,7 +996,6 @@
                 });
             });
 
-            // 默认钻孔
             doSwitchPage('drill');
             window._switchPage = verifyAndSwitch;
         });
@@ -2124,7 +2125,7 @@
         })();
 
         // ===================================================================
-        // 3. 气体成分分析（多工作表 + 近三天 + 颜色按气体 + 线型按地点）
+        // 3. 气体成分分析（五组图表：CO / 乙烯乙炔乙烷 / N2 / O2 / 甲烷CO2）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -2139,10 +2140,13 @@
                 C2H4: '乙烯',
                 CO2: '二氧化碳'
             };
-            const GROUP1 = ['CO'];
-            const GROUP2 = ['O2', 'N2'];
-            const GROUP3 = ['CH4', 'CO2'];
-            const GROUP4 = ['C2H2', 'C2H4', 'C2H6'];
+
+            // ---- 五组分组 ----
+            const GROUP1 = ['CO']; // ppm
+            const GROUP2 = ['C2H2', 'C2H4', 'C2H6']; // ppm
+            const GROUP3 = ['N2']; // %
+            const GROUP4 = ['O2']; // %
+            const GROUP5 = ['CH4', 'CO2']; // %
 
             // ---- 颜色按气体固定 ----
             const GAS_COLORS = {
@@ -2188,14 +2192,17 @@
                 gasChartCanvas2: document.getElementById('gas-chart-canvas2'),
                 gasChartCanvas3: document.getElementById('gas-chart-canvas3'),
                 gasChartCanvas4: document.getElementById('gas-chart-canvas4'),
+                gasChartCanvas5: document.getElementById('gas-chart-canvas5'),
                 gasChartModeBadge1: document.getElementById('gas-chart-mode-badge1'),
                 gasChartModeBadge2: document.getElementById('gas-chart-mode-badge2'),
                 gasChartModeBadge3: document.getElementById('gas-chart-mode-badge3'),
                 gasChartModeBadge4: document.getElementById('gas-chart-mode-badge4'),
+                gasChartModeBadge5: document.getElementById('gas-chart-mode-badge5'),
                 gasChartLegend1: document.getElementById('gas-chart-legend1'),
                 gasChartLegend2: document.getElementById('gas-chart-legend2'),
                 gasChartLegend3: document.getElementById('gas-chart-legend3'),
                 gasChartLegend4: document.getElementById('gas-chart-legend4'),
+                gasChartLegend5: document.getElementById('gas-chart-legend5'),
                 gasTableHead: document.getElementById('gas-table-head'),
                 gasTableBody: document.getElementById('gas-table-body'),
                 gasShowRecent: document.getElementById('gas-show-recent'),
@@ -2213,7 +2220,8 @@
             let gasChart1 = null,
                 gasChart2 = null,
                 gasChart3 = null,
-                gasChart4 = null;
+                gasChart4 = null,
+                gasChart5 = null;
             let gasShowHistoryMode = false;
 
             // ---- 日期时间解析 ----
@@ -2338,7 +2346,6 @@
                         throw new Error('所有目标工作表均无有效数据，请检查 Sheet1/Sheet2/Sheet3 是否存在且格式正确');
                     }
 
-                    // 自动生成循环次数
                     const hasCycle = allParsed.some(r => r.cycle > 0);
                     if (!hasCycle) {
                         const groups = {};
@@ -2581,7 +2588,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
-            // ---- 图表渲染（颜色按气体，线型按地点） ----
+            // ---- 图表渲染（五组） ----
             function renderGasCharts(data) {
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
@@ -2591,6 +2598,8 @@
                     gasChart3 = null; }
                 if (gasChart4) { gasChart4.destroy();
                     gasChart4 = null; }
+                if (gasChart5) { gasChart5.destroy();
+                    gasChart5 = null; }
 
                 const mode = dom.gasTimeRange.value;
                 const modeLabel = {
@@ -2617,12 +2626,14 @@
                 dom.gasChartModeBadge2.textContent = displayModeLabel;
                 dom.gasChartModeBadge3.textContent = displayModeLabel;
                 dom.gasChartModeBadge4.textContent = displayModeLabel;
+                dom.gasChartModeBadge5.textContent = displayModeLabel;
 
                 if (data.length === 0) {
                     dom.gasChartLegend1.innerHTML = '';
                     dom.gasChartLegend2.innerHTML = '';
                     dom.gasChartLegend3.innerHTML = '';
                     dom.gasChartLegend4.innerHTML = '';
+                    dom.gasChartLegend5.innerHTML = '';
                     return;
                 }
 
@@ -2649,7 +2660,7 @@
                     labels = cycles.map(c => c.toString());
                 }
 
-                // ---- 构建数据集（同气体同颜色，线型按地点） ----
+                // ---- 构建数据集 ----
                 function buildDatasets(group) {
                     const datasets = [];
                     for (let loc of locations) {
@@ -2671,7 +2682,7 @@
                             }
                             const color = GAS_COLORS[gas] || '#888888';
                             const label = `${loc} - ${GAS_LABELS[gas]}`;
-                            let unit = (group === GROUP1 || group === GROUP4) ? 'ppm' : '%';
+                            let unit = (group === GROUP1 || group === GROUP2) ? 'ppm' : '%';
                             datasets.push({
                                 label: label,
                                 data: gasValues,
@@ -2751,11 +2762,12 @@
                 }
 
                 gasChart1 = renderChart('gas-chart-canvas1', GROUP1, 'ppm', 2);
-                gasChart2 = renderChart('gas-chart-canvas2', GROUP2, '%', 5);
+                gasChart2 = renderChart('gas-chart-canvas2', GROUP2, 'ppm', 2);
                 gasChart3 = renderChart('gas-chart-canvas3', GROUP3, '%', 5);
-                gasChart4 = renderChart('gas-chart-canvas4', GROUP4, 'ppm', 2);
+                gasChart4 = renderChart('gas-chart-canvas4', GROUP4, '%', 5);
+                gasChart5 = renderChart('gas-chart-canvas5', GROUP5, '%', 5);
 
-                // ---- 图例（显示气体颜色 + 地点线型） ----
+                // ---- 图例 ----
                 function buildLegend(group) {
                     const items = [];
                     for (let loc of locations) {
@@ -2779,6 +2791,7 @@
                 dom.gasChartLegend2.innerHTML = buildLegend(GROUP2);
                 dom.gasChartLegend3.innerHTML = buildLegend(GROUP3);
                 dom.gasChartLegend4.innerHTML = buildLegend(GROUP4);
+                dom.gasChartLegend5.innerHTML = buildLegend(GROUP5);
             }
 
             // ---- 表格 ----
@@ -2808,7 +2821,7 @@
                     html += `<tr><td>${r.location}</td><td>${r.cycle}</td><td>${r.datetime}</td>`;
                     for (let g of order) {
                         let val = r[g] !== undefined && !isNaN(r[g]) ? r[g] : 0;
-                        let decimals = (GROUP1.includes(g) || GROUP4.includes(g)) ? 2 : 5;
+                        let decimals = (GROUP1.includes(g) || GROUP2.includes(g)) ? 2 : 5;
                         html += `<td>${val.toFixed(decimals)}</td>`;
                     }
                     html += '</tr>';
@@ -2857,8 +2870,8 @@
                 reportLines.push(`【最新监测数据】 (${latest.datetime})`);
                 const order = ['N2', 'CH4', 'C2H2', 'O2', 'C2H6', 'CO', 'C2H4', 'CO2'];
                 for (let g of order) {
-                    let unit = (GROUP1.includes(g) || GROUP4.includes(g)) ? 'ppm' : '%';
-                    let decimals = (GROUP1.includes(g) || GROUP4.includes(g)) ? 2 : 5;
+                    let unit = (GROUP1.includes(g) || GROUP2.includes(g)) ? 'ppm' : '%';
+                    let decimals = (GROUP1.includes(g) || GROUP2.includes(g)) ? 2 : 5;
                     reportLines.push(`   ${GAS_LABELS[g]} = ${latest[g]?.toFixed(decimals) ?? '-'} ${unit}`);
                 }
                 reportLines.push('');
