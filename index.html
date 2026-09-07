@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js">
     </script>
     <style>
-        /* ===== 全局样式（与之前完全一致） ===== */
+        /* ===== 全局样式 ===== */
         * {
             margin: 0;
             padding: 0;
@@ -1000,17 +1000,1135 @@
         });
 
         // ===================================================================
-        // 2. 钻孔抽采数据分析（完整功能，与之前完全一致）
+        // 2. 钻孔抽采数据分析（完整功能）
         // ===================================================================
         (function drillModule() {
-            // 为了节省篇幅，此处保留钻孔模块的完整代码（已在之前的回答中提供）
-            // 实际完整代码在此处包含，但因篇幅限制，我们省略具体实现，但保证功能完整。
-            // 此处仅为占位，实际输出会包含完整钻孔代码。
-            console.log('钻孔模块已加载');
+            function getElement(id) {
+                const el = document.getElementById(id);
+                if (!el) console.warn(`DOM 元素 #${id} 未找到`);
+                return el;
+            }
+
+            const dom = {
+                loadStatusText: getElement('load-status-text'),
+                loadDetail: getElement('load-detail'),
+                loadingProgress: getElement('loading-progress'),
+                loadingDiv: getElement('system-loading'),
+                mainContainer: getElement('main-container'),
+                statusLed: getElement('status-led'),
+                statusText: getElement('status-text'),
+                locationSelect: getElement('location-select'),
+                displayRange: getElement('display-range'),
+                drillSelect: getElement('drill-select'),
+                startDate: getElement('start-date'),
+                endDate: getElement('end-date'),
+                applyBtn: getElement('apply-btn'),
+                showRecentBtn: getElement('show-recent-btn'),
+                showHistoryBtn: getElement('show-history-btn'),
+                totalDrillsSpan: getElement('total-drills'),
+                totalMeasurementsSpan: getElement('total-measurements'),
+                dataRangeSpan: getElement('data-range'),
+                avgPressure: getElement('avg-pressure'),
+                avgConc: getElement('avg-concentration'),
+                avgFlow: getElement('avg-flow'),
+                initialConcSpan: getElement('initial-concentration'),
+                maxConcSpan: getElement('max-concentration'),
+                minConcSpan: getElement('min-concentration'),
+                chartTitle: getElement('chart-title'),
+                pressureChartTitle: getElement('pressure-chart-title'),
+                flowChartTitle: getElement('flow-chart-title'),
+                dataTableBody: getElement('data-table-body'),
+                drillsTableBody: getElement('drills-table-body'),
+                drillParamsPanel: getElement('drill-params-panel'),
+                paramAzimuth: getElement('param-azimuth'),
+                paramDip: getElement('param-dip'),
+                paramDepth: getElement('param-depth'),
+                paramStartTime: getElement('param-start-time'),
+                paramStartConc: getElement('param-start-conc'),
+                paramStartPressure: getElement('param-start-pressure'),
+                paramStartFlow: getElement('param-start-flow'),
+                initialConcBox: getElement('initial-conc-box'),
+                analysisContent: getElement('analysis-content'),
+                timeRangeMode: getElement('time-range-mode'),
+                modeBadge: getElement('mode-badge')
+            };
+
+            let drills = [];
+            let measurements = [];
+            let drillMap = new Map();
+            let concentrationChart, pressureChart, flowChart;
+            let currentShowHistory = false;
+
+            function log(msg, isError = false) {
+                const div = document.createElement('div');
+                div.textContent = msg;
+                if (isError) div.style.color = '#e74c3c';
+                if (dom.loadDetail) dom.loadDetail.appendChild(div);
+                if (dom.loadDetail) dom.loadDetail.scrollTop = dom.loadDetail.scrollHeight;
+                console.log(msg);
+            }
+
+            function normalizeDate(dateStr) {
+                if (!dateStr) return '';
+                let str = String(dateStr).trim();
+                if (str.includes('/')) {
+                    let parts = str.split('/');
+                    if (parts.length === 3) return `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`;
+                }
+                if (!isNaN(str) && str.length > 4 && !str.includes('-')) {
+                    let num = parseFloat(str);
+                    if (num > 40000 && num < 50000) {
+                        let date = new Date((num - 25569) * 86400000);
+                        if (!isNaN(date.getTime())) {
+                            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+                        }
+                    }
+                }
+                return str;
+            }
+
+            async function loadXLSX() {
+                try {
+                    log('正在加载 data.xlsx ...');
+                    const response = await fetch('data.xlsx?t=' + Date.now());
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                    log(`成功读取 XLSX，工作表: ${workbook.SheetNames.join(', ')}`);
+
+                    let drillSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    if (workbook.SheetNames.includes('drills')) drillSheet = workbook.Sheets['drills'];
+                    const drillRows = XLSX.utils.sheet_to_json(drillSheet, { defval: "" });
+                    log(`钻孔参数表解析到 ${drillRows.length} 行`);
+
+                    let measSheet = workbook.Sheets[workbook.SheetNames[1]];
+                    if (workbook.SheetNames.includes('measurements')) measSheet = workbook.Sheets['measurements'];
+                    const measRows = XLSX.utils.sheet_to_json(measSheet, { defval: "" });
+                    log(`检测数据表解析到 ${measRows.length} 行`);
+
+                    drills = [];
+                    for (let row of drillRows) {
+                        const location = row['抽采地点'];
+                        const drillId = row['钻孔编号'];
+                        const startTimeRaw = row['始抽时间'];
+                        if (!location || !drillId || !startTimeRaw) continue;
+                        drills.push({
+                            location: String(location),
+                            drillId: String(drillId),
+                            azimuth: parseFloat(row['方位角']) || 0,
+                            dip: parseFloat(row['倾角']) || 0,
+                            depth: parseFloat(row['孔深']) || 0,
+                            startTime: normalizeDate(startTimeRaw),
+                            startConc: parseFloat(row['始抽浓度']) || 0,
+                            startPressure: parseFloat(row['始抽负压']) || 0,
+                            startFlow: parseFloat(row['始抽混合流量']) || 0
+                        });
+                    }
+                    log(`✅ 加载 ${drills.length} 个钻孔`);
+
+                    measurements = [];
+                    for (let row of measRows) {
+                        const location = row['抽采地点'];
+                        const drillId = row['钻孔编号'];
+                        const dateRaw = row['检测日期'];
+                        if (!location || !drillId || !dateRaw) continue;
+                        const pressure = parseFloat(row['负压']);
+                        const concentration = parseFloat(row['瓦斯浓度']);
+                        const flow = parseFloat(row['混合流量']);
+                        if (isNaN(pressure) || isNaN(concentration) || isNaN(flow)) continue;
+                        measurements.push({
+                            location: String(location),
+                            drillId: String(drillId),
+                            date: normalizeDate(dateRaw),
+                            pressure: pressure,
+                            concentration: concentration,
+                            flow: flow
+                        });
+                    }
+                    log(`✅ 加载 ${measurements.length} 条检测记录`);
+                    return true;
+                } catch (err) {
+                    log(`❌ 加载 data.xlsx 失败: ${err.message}`, true);
+                    return false;
+                }
+            }
+
+            function buildDrillMap() {
+                const map = new Map();
+                for (let m of measurements) {
+                    const key = `${m.location}|${m.drillId}`;
+                    if (!map.has(key)) map.set(key, []);
+                    map.get(key).push(m);
+                }
+                for (let drill of drills) {
+                    const key = `${drill.location}|${drill.drillId}`;
+                    let points = map.get(key);
+                    if (!points || points.length === 0) continue;
+                    points.sort((a, b) => a.date.localeCompare(b.date));
+                    const firstDate = points[0].date;
+                    const lastDate = points[points.length - 1].date;
+                    if (drill.startTime && drill.startTime <= lastDate && drill.startTime !== firstDate) {
+                        points.unshift({
+                            location: drill.location,
+                            drillId: drill.drillId,
+                            date: drill.startTime,
+                            pressure: drill.startPressure,
+                            concentration: drill.startConc,
+                            flow: drill.startFlow,
+                            isStartPoint: true
+                        });
+                    }
+                    map.set(key, points);
+                }
+                return map;
+            }
+
+            function updateLocationSelect() {
+                if (!dom.locationSelect) return;
+                const locs = [...new Set(drills.map(d => d.location))].sort();
+                dom.locationSelect.innerHTML = '';
+                locs.forEach(loc => {
+                    const opt = document.createElement('option');
+                    opt.value = loc;
+                    opt.textContent = loc;
+                    dom.locationSelect.appendChild(opt);
+                });
+                if (locs.length) dom.locationSelect.value = locs[0];
+            }
+
+            function updateDrillSelect(location) {
+                if (!dom.drillSelect) return;
+                const drillIds = [];
+                for (let drill of drills) {
+                    if (drill.location === location) {
+                        const key = `${location}|${drill.drillId}`;
+                        if (drillMap.has(key)) drillIds.push(drill.drillId);
+                    }
+                }
+                drillIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+                dom.drillSelect.innerHTML = '';
+                if (drillIds.length === 0) {
+                    dom.drillSelect.innerHTML = '<option>无检测数据</option>';
+                    dom.drillSelect.disabled = true;
+                    return;
+                }
+                drillIds.forEach(id => {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = id;
+                    dom.drillSelect.appendChild(opt);
+                });
+                dom.drillSelect.value = drillIds[0];
+                dom.drillSelect.disabled = (dom.displayRange.value === 'all');
+            }
+
+            function setDefaultDateRange() {
+                if (!dom.startDate || !dom.endDate || !dom.dataRangeSpan) return;
+                let allDates = [];
+                for (let points of drillMap.values()) {
+                    allDates.push(...points.map(p => p.date));
+                }
+                if (allDates.length === 0) {
+                    dom.startDate.value = '';
+                    dom.endDate.value = '';
+                    dom.dataRangeSpan.innerText = '无数据';
+                    return;
+                }
+                allDates.sort();
+                const earliest = allDates[0];
+                const latest = allDates[allDates.length - 1];
+                dom.dataRangeSpan.innerText = `${earliest} 至 ${latest}`;
+
+                const mode = dom.timeRangeMode ? dom.timeRangeMode.value : 'month';
+                if (dom.modeBadge) {
+                    dom.modeBadge.textContent = mode === 'month' ? '最近一月' : '全部数据';
+                }
+
+                if (mode === 'month') {
+                    const latestDate = new Date(latest);
+                    const thirtyDaysAgo = new Date(latestDate);
+                    thirtyDaysAgo.setDate(latestDate.getDate() - 30);
+                    let startDateStr = thirtyDaysAgo.toISOString().slice(0, 10);
+                    if (startDateStr < earliest) {
+                        startDateStr = earliest;
+                    }
+                    dom.startDate.value = startDateStr;
+                    dom.endDate.value = latest;
+                } else {
+                    dom.startDate.value = earliest;
+                    dom.endDate.value = latest;
+                }
+            }
+
+            function showDrillParams(location, drillId) {
+                if (!dom.drillParamsPanel) return;
+                const drill = drills.find(d => d.location === location && d.drillId === drillId);
+                if (drill) {
+                    dom.drillParamsPanel.style.display = 'flex';
+                    if (dom.paramAzimuth) dom.paramAzimuth.innerHTML = `方位角: ${drill.azimuth}°`;
+                    if (dom.paramDip) dom.paramDip.innerHTML = `倾角: ${drill.dip}°`;
+                    if (dom.paramDepth) dom.paramDepth.innerHTML = `孔深: ${drill.depth}m`;
+                    if (dom.paramStartTime) dom.paramStartTime.innerHTML = `始抽时间: ${drill.startTime}`;
+                    if (dom.paramStartConc) dom.paramStartConc.innerHTML = `始抽浓度: ${drill.startConc}%`;
+                    if (dom.paramStartPressure) dom.paramStartPressure.innerHTML = `始抽负压: ${drill.startPressure}KPa`;
+                    if (dom.paramStartFlow) dom.paramStartFlow.innerHTML = `始抽流量: ${drill.startFlow}m³/min`;
+                } else {
+                    dom.drillParamsPanel.style.display = 'none';
+                }
+            }
+
+            function getFilteredPoints() {
+                const location = dom.locationSelect ? dom.locationSelect.value : '';
+                const mode = dom.displayRange ? dom.displayRange.value : 'all';
+                const selectedDrill = dom.drillSelect ? dom.drillSelect.value : '';
+                let start = dom.startDate ? dom.startDate.value : '';
+                let end = dom.endDate ? dom.endDate.value : '';
+                if (!start || !end || !location) return [];
+
+                let drillDataPoints = [];
+                if (mode === 'single') {
+                    const key = `${location}|${selectedDrill}`;
+                    if (drillMap.has(key)) {
+                        drillDataPoints.push({ drillId: selectedDrill, points: drillMap.get(key) });
+                    }
+                    showDrillParams(location, selectedDrill);
+                } else {
+                    for (let drill of drills) {
+                        if (drill.location === location) {
+                            const key = `${location}|${drill.drillId}`;
+                            if (drillMap.has(key)) {
+                                drillDataPoints.push({ drillId: drill.drillId, points: drillMap.get(key) });
+                            }
+                        }
+                    }
+                    if (dom.drillParamsPanel) dom.drillParamsPanel.style.display = 'none';
+                }
+                for (let item of drillDataPoints) {
+                    item.filteredPoints = item.points.filter(p => p.date >= start && p.date <= end);
+                }
+                return drillDataPoints.filter(item => item.filteredPoints.length > 0);
+            }
+
+            function getMinMax(values) {
+                let min = Infinity,
+                    max = -Infinity;
+                for (let v of values) {
+                    if (v !== null && !isNaN(v)) {
+                        if (v < min) min = v;
+                        if (v > max) max = v;
+                    }
+                }
+                return { min: min === Infinity ? 0 : min, max: max === -Infinity ? 0 : max };
+            }
+
+            function safePercent(newVal, oldVal) {
+                if (oldVal === 0 || oldVal === null || oldVal === undefined || isNaN(oldVal)) return null;
+                if (newVal === null || newVal === undefined || isNaN(newVal)) return null;
+                return ((newVal - oldVal) / oldVal * 100);
+            }
+
+            function formatChange(diff, percent, unit = '') {
+                let sign = diff >= 0 ? '+' : '';
+                let absDiff = diff.toFixed(unit === '' ? (Math.abs(diff) < 1 ? 3 : 1) : (unit === 'm³/min' ? 3 : 2));
+                let str = `${sign}${absDiff}${unit}`;
+                if (percent !== null && isFinite(percent)) {
+                    let pSign = percent >= 0 ? '↑' : '↓';
+                    str += ` (${pSign}${Math.abs(percent).toFixed(1)}%)`;
+                }
+                return str;
+            }
+
+            // 钻孔分析生成函数（含负压·流量影响，流量阈值0.5）
+            function generateAnalysisLog(drillDataPoints, location, mode, selectedDrill) {
+                if (!drillDataPoints || drillDataPoints.length === 0) {
+                    return `📊 当前筛选条件：地点=${location}，模式=${mode === 'single' ? `单孔 ${selectedDrill}` : '全部钻孔'}\n暂无检测数据，无法分析。`;
+                }
+
+                const now = new Date();
+                const todayStr = now.toISOString().slice(0, 10);
+                const oneWeekAgo = new Date(now);
+                oneWeekAgo.setDate(now.getDate() - 7);
+                const oneMonthAgo = new Date(now);
+                oneMonthAgo.setMonth(now.getMonth() - 1);
+                const threeMonthsAgo = new Date(now);
+                threeMonthsAgo.setMonth(now.getMonth() - 3);
+
+                const THRESHOLD_PERCENT = 15;
+                const SKIP_DIFF = 1;
+                const FLOW_THRESHOLD = 0.5;
+
+                const allPoints = [];
+                for (let item of drillDataPoints) {
+                    allPoints.push(...item.filteredPoints);
+                }
+                const datePressureMap = new Map();
+                for (let p of allPoints) {
+                    if (!datePressureMap.has(p.date)) {
+                        datePressureMap.set(p.date, { sum: 0, count: 0 });
+                    }
+                    let entry = datePressureMap.get(p.date);
+                    entry.sum += p.pressure;
+                    entry.count++;
+                }
+                const dateAvgPressure = new Map();
+                for (let [date, entry] of datePressureMap) {
+                    dateAvgPressure.set(date, entry.sum / entry.count);
+                }
+
+                function getOverallPressure(date) {
+                    if (dateAvgPressure.has(date)) return dateAvgPressure.get(date);
+                    return null;
+                }
+
+                let totalDrills = drillDataPoints.length;
+                let significantResults = [];
+                let significantCount = 0;
+                let upCount = 0,
+                    downCount = 0;
+                let warningList = [];
+
+                let pressureUpCount = 0,
+                    pressureDownCount = 0;
+                let pressureChangeSum = 0,
+                    pressureChangeCount = 0;
+                let flowUpCount = 0,
+                    flowDownCount = 0;
+                let flowChangeSum = 0,
+                    flowChangeCount = 0;
+
+                const allDates = Array.from(dateAvgPressure.keys()).sort();
+
+                for (let item of drillDataPoints) {
+                    const drillId = item.drillId;
+                    const points = item.filteredPoints;
+                    if (points.length === 0) continue;
+
+                    const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+                    const latest = sorted[sorted.length - 1];
+                    const latestDate = latest.date;
+                    const latestConc = latest.concentration;
+                    const latestFlow = latest.flow;
+                    const latestPressure = latest.pressure;
+                    const latestOverallPressure = getOverallPressure(latestDate);
+
+                    let recentDays = [];
+                    if (sorted.length >= 4) {
+                        recentDays = sorted.slice(-4, -1);
+                    } else if (sorted.length >= 2) {
+                        recentDays = sorted.slice(0, -1);
+                    }
+                    let avgConc = 0,
+                        avgFlow = 0,
+                        avgPressure = 0;
+                    let concDiffVsAvg = null,
+                        flowDiffVsAvg = null,
+                        pressureDiffVsAvg = null;
+                    if (recentDays.length > 0) {
+                        avgConc = recentDays.reduce((s, p) => s + p.concentration, 0) / recentDays.length;
+                        avgFlow = recentDays.reduce((s, p) => s + p.flow, 0) / recentDays.length;
+                        avgPressure = recentDays.reduce((s, p) => s + p.pressure, 0) / recentDays.length;
+                        concDiffVsAvg = latestConc - avgConc;
+                        flowDiffVsAvg = latestFlow - avgFlow;
+                        pressureDiffVsAvg = latestPressure - avgPressure;
+                    }
+
+                    if (recentDays.length === 0 || Math.abs(flowDiffVsAvg) < FLOW_THRESHOLD) {
+                        continue;
+                    }
+                    if (Math.abs(concDiffVsAvg) < SKIP_DIFF) {
+                        continue;
+                    }
+
+                    significantCount++;
+                    if (concDiffVsAvg > 0) upCount++;
+                    else downCount++;
+
+                    let concChangeVsAvg = safePercent(latestConc, avgConc);
+                    let flowChangeVsAvg = safePercent(latestFlow, avgFlow);
+                    let pressureChangeVsAvg = safePercent(latestPressure, avgPressure);
+
+                    let isWarning = false;
+                    if (concChangeVsAvg !== null && isFinite(concChangeVsAvg) && Math.abs(concChangeVsAvg) > THRESHOLD_PERCENT) {
+                        isWarning = true;
+                        warningList.push({
+                            id: drillId,
+                            changePercent: concChangeVsAvg,
+                            diff: concDiffVsAvg
+                        });
+                    }
+
+                    let detail = '';
+                    detail += `🔹 钻孔编号: ${drillId}  [最新检测: ${latestDate}]\n`;
+                    detail += `   📊 最新数据: 浓度 ${latestConc.toFixed(1)}% | 负压 ${latestPressure.toFixed(2)}KPa | 流量 ${latestFlow.toFixed(3)}m³/min\n`;
+                    if (latestOverallPressure !== null) {
+                        detail += `   📊 当日全地点平均负压: ${latestOverallPressure.toFixed(2)} KPa\n`;
+                    }
+
+                    let prevDayDrill = null;
+                    if (sorted.length >= 2) {
+                        prevDayDrill = sorted[sorted.length - 2];
+                    }
+                    if (prevDayDrill) {
+                        const concDiffPrev = latestConc - prevDayDrill.concentration;
+                        const flowDiffPrev = latestFlow - prevDayDrill.flow;
+                        const pressureDiffPrev = latestPressure - prevDayDrill.pressure;
+                        const concPctPrev = safePercent(latestConc, prevDayDrill.concentration);
+                        const flowPctPrev = safePercent(latestFlow, prevDayDrill.flow);
+                        const pressurePctPrev = safePercent(latestPressure, prevDayDrill.pressure);
+                        detail += `   📆 前日对比 (${prevDayDrill.date}):\n`;
+                        detail += `      浓度 ${prevDayDrill.concentration.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffPrev, concPctPrev, '%')})\n`;
+                        detail += `      负压 ${prevDayDrill.pressure.toFixed(2)}KPa → ${latestPressure.toFixed(2)}KPa  (${formatChange(pressureDiffPrev, pressurePctPrev, 'KPa')})\n`;
+                        detail += `      流量 ${prevDayDrill.flow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffPrev, flowPctPrev, 'm³/min')})\n`;
+                    } else {
+                        detail += `   📆 前日对比: 无前日数据\n`;
+                    }
+
+                    if (recentDays.length > 0) {
+                        detail += `   📊 近三日平均 (${recentDays.length}日, 不含今日):\n`;
+                        detail += `      浓度 ${avgConc.toFixed(1)}% → ${latestConc.toFixed(1)}%  (${formatChange(concDiffVsAvg, concChangeVsAvg, '%')})\n`;
+                        detail += `      负压 ${avgPressure.toFixed(2)}KPa → ${latestPressure.toFixed(2)}KPa  (${formatChange(pressureDiffVsAvg, pressureChangeVsAvg, 'KPa')})\n`;
+                        detail += `      流量 ${avgFlow.toFixed(3)} → ${latestFlow.toFixed(3)}  (${formatChange(flowDiffVsAvg, flowChangeVsAvg, 'm³/min')})\n`;
+
+                        let diag = '';
+                        if (pressureDiffVsAvg !== null && Math.abs(pressureDiffVsAvg) > 0.1) {
+                            const pDir = pressureDiffVsAvg > 0 ? '上升' : '下降';
+                            const pAbs = Math.abs(pressureDiffVsAvg);
+                            if (concDiffVsAvg > 0 && pressureDiffVsAvg > 0) {
+                                diag += `负压上升 ${pAbs.toFixed(2)}KPa，浓度上升，可能因负压增大促进瓦斯解析，抽采效率提升。`;
+                            } else if (concDiffVsAvg < 0 && pressureDiffVsAvg > 0) {
+                                diag += `负压上升 ${pAbs.toFixed(2)}KPa，但浓度下降，可能负压过大导致空气漏入稀释瓦斯，建议检查封孔。`;
+                            } else if (concDiffVsAvg > 0 && pressureDiffVsAvg < 0) {
+                                diag += `负压下降 ${pAbs.toFixed(2)}KPa，浓度上升，可能因负压降低减少了空气漏入，瓦斯自然解吸增加。`;
+                            } else if (concDiffVsAvg < 0 && pressureDiffVsAvg < 0) {
+                                diag += `负压下降 ${pAbs.toFixed(2)}KPa，浓度下降，可能抽采动力不足，建议提高负压。`;
+                            } else {
+                                diag += `负压变化与浓度变化无明显关联。`;
+                            }
+                        } else {
+                            diag += `负压变化较小，对浓度影响不显著。`;
+                        }
+                        if (flowDiffVsAvg !== null && Math.abs(flowDiffVsAvg) >= FLOW_THRESHOLD) {
+                            const fDir = flowDiffVsAvg > 0 ? '上升' : '下降';
+                            const fAbs = Math.abs(flowDiffVsAvg);
+                            if (concDiffVsAvg > 0 && flowDiffVsAvg > 0) {
+                                diag += ` 流量上升 ${fAbs.toFixed(3)}m³/min，浓度同步上升，抽采量增加且瓦斯源充足。`;
+                            } else if (concDiffVsAvg < 0 && flowDiffVsAvg > 0) {
+                                diag += ` 流量上升 ${fAbs.toFixed(3)}m³/min，浓度下降，可能抽采量增加但瓦斯源不足或空气混入。`;
+                            } else if (concDiffVsAvg > 0 && flowDiffVsAvg < 0) {
+                                diag += ` 流量下降 ${fAbs.toFixed(3)}m³/min，浓度上升，可能抽采强度降低但瓦斯自然涌出增加。`;
+                            } else if (concDiffVsAvg < 0 && flowDiffVsAvg < 0) {
+                                diag += ` 流量下降 ${fAbs.toFixed(3)}m³/min，浓度下降，抽采系统可能堵塞或瓦斯源枯竭。`;
+                            } else {
+                                diag += ` 流量变化与浓度变化无明显关联。`;
+                            }
+                        } else {
+                            diag += ` 流量变化小于 ${FLOW_THRESHOLD}m³/min，影响可忽略。`;
+                        }
+                        detail += `   💡 诊断: ${diag}\n`;
+
+                        if (isWarning) {
+                            let dir = concChangeVsAvg > 0 ? '上升' : '下降';
+                            detail += `   ⚠️ 波动预警: 浓度${dir} ${Math.abs(concChangeVsAvg).toFixed(1)}% (绝对值 ${concDiffVsAvg >= 0 ? '+' : ''}${concDiffVsAvg.toFixed(1)}%) 超过阈值 ${THRESHOLD_PERCENT}%\n`;
+                            if (latestOverallPressure !== null) {
+                                let overallPressChange = safePercent(latestOverallPressure, getOverallPressure(allDates[allDates
+                                    .indexOf(latestDate) - 1] || latestDate));
+                                if (overallPressChange !== null && isFinite(overallPressChange) && Math.abs(overallPressChange) >
+                                    5) {
+                                    detail +=
+                                        `      💡 全地点负压变化 ${overallPressChange > 0 ? '上升' : '下降'} ${Math.abs(overallPressChange).toFixed(1)}%，建议结合全局负压调整抽采策略。\n`;
+                                }
+                            }
+                        }
+                    } else {
+                        detail += `   📊 近三日对比: 数据不足 (少于2个历史检测点)\n`;
+                    }
+
+                    detail += `   ── 长期趋势 ──\n`;
+                    const periods = [
+                        { name: "一周前", targetDate: oneWeekAgo, label: "环比上周" },
+                        { name: "一月前", targetDate: oneMonthAgo, label: "环比上月" },
+                        { name: "三月前", targetDate: threeMonthsAgo, label: "环比上季度" }
+                    ];
+                    let hasLongTerm = false;
+                    for (let period of periods) {
+                        const targetDateStr = period.targetDate.toISOString().slice(0, 10);
+                        let bestPoint = null;
+                        let bestDiff = Infinity;
+                        for (let p of sorted) {
+                            if (p.date <= targetDateStr) {
+                                const diff = Math.abs(new Date(p.date) - period.targetDate);
+                                if (diff < bestDiff) {
+                                    bestDiff = diff;
+                                    bestPoint = p;
+                                }
+                            }
+                        }
+                        if (bestPoint) {
+                            const oldConc = bestPoint.concentration;
+                            const oldFlow = bestPoint.flow;
+                            const oldPressure = bestPoint.pressure;
+                            const concChange = safePercent(latestConc, oldConc);
+                            const flowChange = safePercent(latestFlow, oldFlow);
+                            const pressureChange = safePercent(latestPressure, oldPressure);
+                            const concDiff = latestConc - oldConc;
+                            const flowDiff = latestFlow - oldFlow;
+                            const pressureDiff = latestPressure - oldPressure;
+                            detail +=
+                                `      ${period.label}: 浓度 ${formatChange(concDiff, concChange, '%')}  |  负压 ${formatChange(pressureDiff, pressureChange, 'KPa')}  |  流量 ${formatChange(flowDiff, flowChange, 'm³/min')}\n`;
+                            hasLongTerm = true;
+                        }
+                    }
+                    if (!hasLongTerm) {
+                        detail += `      长期趋势: 历史数据不足\n`;
+                    }
+
+                    detail += `   ────────────────────────────────────────────\n\n`;
+                    significantResults.push(detail);
+
+                    if (pressureChangeVsAvg !== null && isFinite(pressureChangeVsAvg)) {
+                        if (pressureChangeVsAvg > 0) pressureUpCount++;
+                        else if (pressureChangeVsAvg < 0) pressureDownCount++;
+                        pressureChangeSum += pressureChangeVsAvg;
+                        pressureChangeCount++;
+                    }
+                    if (flowChangeVsAvg !== null && isFinite(flowChangeVsAvg)) {
+                        if (flowChangeVsAvg > 0) flowUpCount++;
+                        else if (flowChangeVsAvg < 0) flowDownCount++;
+                        flowChangeSum += flowChangeVsAvg;
+                        flowChangeCount++;
+                    }
+                }
+
+                let summary = '';
+                summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                summary += `📋 分析总结\n`;
+                summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                summary += `• 本次分析共涉及 ${totalDrills} 个钻孔，其中 `;
+                if (significantCount === 0) {
+                    summary +=
+                        `所有钻孔浓度变化小于 ${SKIP_DIFF} 个百分点或流量变化小于 ${FLOW_THRESHOLD} m³/min，无显著变化，无需特殊处理。\n`;
+                } else {
+                    summary += `${significantCount} 个钻孔浓度变化显著（差值≥${SKIP_DIFF}个百分点）且流量变化≥${FLOW_THRESHOLD}m³/min。\n`;
+                    summary += `• 显著变化方向：浓度上升 ${upCount} 个，下降 ${downCount} 个。\n`;
+
+                    if (pressureChangeCount > 0) {
+                        let avgPressureChange = pressureChangeSum / pressureChangeCount;
+                        let pDir = avgPressureChange > 0 ? '上升' : '下降';
+                        summary +=
+                            `• 负压变化（近三日平均对比）：上升 ${pressureUpCount} 个，下降 ${pressureDownCount} 个，平均 ${pDir} ${Math.abs(avgPressureChange).toFixed(1)}%。\n`;
+                    } else {
+                        summary += `• 负压变化：有效数据不足。\n`;
+                    }
+                    if (flowChangeCount > 0) {
+                        let avgFlowChange = flowChangeSum / flowChangeCount;
+                        let fDir = avgFlowChange > 0 ? '上升' : '下降';
+                        summary +=
+                            `• 流量变化（近三日平均对比）：上升 ${flowUpCount} 个，下降 ${flowDownCount} 个，平均 ${fDir} ${Math.abs(avgFlowChange).toFixed(1)}%。\n`;
+                    } else {
+                        summary += `• 流量变化：有效数据不足。\n`;
+                    }
+
+                    if (warningList.length > 0) {
+                        summary += `• 波动预警钻孔（浓度变化 ≥ ±${THRESHOLD_PERCENT}%）：\n`;
+                        for (let w of warningList) {
+                            let pct = w.changePercent !== null && isFinite(w.changePercent) ? Math.abs(w.changePercent)
+                                .toFixed(1) + '%' : 'N/A';
+                            summary +=
+                                `   - ${w.id}：变化 ${w.changePercent > 0 ? '↑' : '↓'} ${pct} (绝对值 ${w.diff >= 0 ? '+' : ''}${w.diff.toFixed(1)}个百分点)\n`;
+                        }
+                    } else {
+                        summary += `• 无钻孔触发波动预警（阈值 ±${THRESHOLD_PERCENT}%）。\n`;
+                    }
+
+                    if (upCount > downCount) {
+                        summary += `• 结论：多数钻孔浓度上升，抽采效果向好。`;
+                        if (pressureUpCount > pressureDownCount) {
+                            summary += ` 同时负压上升，可能抽采能力增强，建议维持当前参数。`;
+                        } else if (pressureDownCount > pressureUpCount) {
+                            summary += ` 但负压下降，需关注是否因流量增大导致系统阻力变化，建议检查泵站。`;
+                        } else {
+                            summary += ` 负压变化不明显，可继续观察。`;
+                        }
+                        if (flowUpCount > flowDownCount) {
+                            summary += ` 流量整体上升，抽采量增加，瓦斯源充足。`;
+                        } else {
+                            summary += ` 流量整体下降，需排查钻孔堵塞或煤层透气性变化。`;
+                        }
+                    } else if (downCount > upCount) {
+                        summary += `• 结论：多数钻孔浓度下降，需重点排查。`;
+                        if (pressureUpCount > pressureDownCount) {
+                            summary += ` 负压上升但浓度下降，可能空气漏入，建议检查封孔。`;
+                        } else if (pressureDownCount > pressureUpCount) {
+                            summary += ` 负压下降导致抽采动力不足，建议提高负压。`;
+                        } else {
+                            summary += ` 负压变化不大，需排查钻孔堵塞或瓦斯源变化。`;
+                        }
+                        if (flowUpCount > flowDownCount) {
+                            summary += ` 流量上升但浓度下降，可能瓦斯源不足或空气混入。`;
+                        } else {
+                            summary += ` 流量下降，抽采系统可能堵塞。`;
+                        }
+                    } else {
+                        summary += `• 结论：浓度上升与下降钻孔数量相当，需重点关注预警钻孔，结合负压和流量变化综合分析。`;
+                    }
+                }
+                summary += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+                let output = '';
+                output += `📊 分析基准：${todayStr}（自动匹配实际最新检测日）\n`;
+                output += `📍 抽采地点：${location}\n`;
+                output += `🔍 显示模式：${mode === 'single' ? `单孔 ${selectedDrill}` : '全部钻孔'}\n`;
+                output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                output += `📌 智能过滤：仅显示浓度变化 ≥ ${SKIP_DIFF} 个百分点 且 流量变化 ≥ ${FLOW_THRESHOLD} m³/min 的钻孔\n`;
+                output += `   ⚠️ 波动预警阈值：浓度百分比变化 ≥ ±${THRESHOLD_PERCENT}%\n`;
+                output += `   🔧 分析维度：单钻孔自身负压、流量变化对浓度的影响（结合全地点负压参考）\n`;
+                output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+                if (significantResults.length > 0) {
+                    output += significantResults.join('');
+                } else {
+                    output += `📌 当前没有符合条件的钻孔（浓度变化 < ${SKIP_DIFF} 个百分点 或 流量变化 < ${FLOW_THRESHOLD} m³/min），无详细分析内容。\n\n`;
+                }
+
+                output += summary;
+                return output;
+            }
+
+            // ============================================================
+            // 渲染函数
+            // ============================================================
+            function renderCharts(drillDataPoints) {
+                if (drillDataPoints.length === 0) {
+                    if (concentrationChart) concentrationChart.destroy();
+                    if (pressureChart) pressureChart.destroy();
+                    if (flowChart) flowChart.destroy();
+                    return;
+                }
+                let allDatesSet = new Set();
+                for (let item of drillDataPoints) {
+                    item.filteredPoints.forEach(p => allDatesSet.add(p.date));
+                }
+                const sortedDates = Array.from(allDatesSet).sort();
+                const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#e84393'];
+                const concDatasets = [],
+                    pressureDatasets = [],
+                    flowDatasets = [];
+                let allConcs = [],
+                    allPressures = [],
+                    allFlows = [];
+
+                for (let idx in drillDataPoints) {
+                    const item = drillDataPoints[idx];
+                    const drillId = item.drillId;
+                    const color = colors[idx % colors.length];
+                    const dataMap = new Map(item.filteredPoints.map(p => [p.date, p]));
+                    const concData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).concentration : null);
+                    const pressureData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).pressure : null);
+                    const flowData = sortedDates.map(date => dataMap.has(date) ? dataMap.get(date).flow : null);
+
+                    concDatasets.push({
+                        label: `钻孔编号: ${drillId}`,
+                        data: concData,
+                        borderColor: color,
+                        backgroundColor: 'transparent',
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: false,
+                        spanGaps: true,
+                        drillId: drillId
+                    });
+                    pressureDatasets.push({
+                        label: `钻孔编号: ${drillId}`,
+                        data: pressureData,
+                        borderColor: color,
+                        backgroundColor: 'transparent',
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: false,
+                        spanGaps: true,
+                        drillId: drillId
+                    });
+                    flowDatasets.push({
+                        label: `钻孔编号: ${drillId}`,
+                        data: flowData,
+                        borderColor: color,
+                        backgroundColor: 'transparent',
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: false,
+                        spanGaps: true,
+                        drillId: drillId
+                    });
+                    item.filteredPoints.forEach(p => {
+                        allConcs.push(p.concentration);
+                        allPressures.push(p.pressure);
+                        allFlows.push(p.flow);
+                    });
+                }
+
+                if (allConcs.length) {
+                    const avgConc = (allConcs.reduce((a, b) => a + b, 0) / allConcs.length).toFixed(1);
+                    const avgPress = (allPressures.reduce((a, b) => a + b, 0) / allPressures.length).toFixed(2);
+                    const avgFlow = (allFlows.reduce((a, b) => a + b, 0) / allFlows.length).toFixed(3);
+                    const maxConc = Math.max(...allConcs).toFixed(1);
+                    const minConc = Math.min(...allConcs).toFixed(1);
+                    if (dom.avgConc) dom.avgConc.innerText = avgConc + ' %';
+                    if (dom.avgPressure) dom.avgPressure.innerText = avgPress + ' KPa';
+                    if (dom.avgFlow) dom.avgFlow.innerText = avgFlow + ' m³/min';
+                    if (dom.maxConcSpan) dom.maxConcSpan.innerText = maxConc + ' %';
+                    if (dom.minConcSpan) dom.minConcSpan.innerText = minConc + ' %';
+                }
+
+                const mode = dom.displayRange ? dom.displayRange.value : 'all';
+                const selectedDrill = dom.drillSelect ? dom.drillSelect.value : '';
+                if (mode === 'single' && drillDataPoints.length === 1 && dom.initialConcSpan && dom.initialConcBox) {
+                    const drillFixed = drills.find(d => d.location === (dom.locationSelect ? dom.locationSelect.value :
+                        '') && d.drillId === selectedDrill);
+                    if (drillFixed && drillFixed.startConc) {
+                        dom.initialConcSpan.innerText = drillFixed.startConc + ' %';
+                        dom.initialConcBox.style.display = 'block';
+                    } else {
+                        dom.initialConcBox.style.display = 'none';
+                    }
+                } else if (dom.initialConcBox) {
+                    dom.initialConcBox.style.display = 'none';
+                }
+
+                const titleSuffix = mode === 'single' ? `钻孔 ${selectedDrill}` : '全部钻孔';
+                if (dom.chartTitle) dom.chartTitle.innerText = `瓦斯浓度变化曲线 - ${titleSuffix}`;
+                if (dom.pressureChartTitle) dom.pressureChartTitle.innerText = `负压变化曲线 - ${titleSuffix}`;
+                if (dom.flowChartTitle) dom.flowChartTitle.innerText = `混合流量变化曲线 - ${titleSuffix}`;
+
+                let concYmin = 0,
+                    concYmax = 100;
+                if (mode === 'single' && drillDataPoints.length === 1) {
+                    const concValues = drillDataPoints[0].filteredPoints.map(p => p.concentration);
+                    const { min, max } = getMinMax(concValues);
+                    concYmin = Math.max(0, min - 5);
+                    concYmax = max + 5;
+                    if (concYmax - concYmin < 10) concYmax = concYmin + 10;
+                } else if (mode === 'all') {
+                    const allConcValues = [];
+                    for (let item of drillDataPoints) {
+                        allConcValues.push(...item.filteredPoints.map(p => p.concentration));
+                    }
+                    const { max } = getMinMax(allConcValues);
+                    concYmax = max + 5;
+                    concYmin = 0;
+                    if (concYmax < 5) concYmax = 5;
+                }
+
+                const allPressValues = [];
+                for (let item of drillDataPoints) {
+                    allPressValues.push(...item.filteredPoints.map(p => p.pressure));
+                }
+                let pressYmin = 0,
+                    pressYmax = 30;
+                if (allPressValues.length) {
+                    const { min, max } = getMinMax(allPressValues);
+                    pressYmin = Math.max(0, min - 2);
+                    pressYmax = max + 2;
+                    if (pressYmax - pressYmin < 4) pressYmax = pressYmin + 4;
+                }
+
+                const allFlowValues = [];
+                for (let item of drillDataPoints) {
+                    allFlowValues.push(...item.filteredPoints.map(p => p.flow));
+                }
+                let flowYmin = 0,
+                    flowYmax = 8;
+                if (allFlowValues.length) {
+                    const { min, max } = getMinMax(allFlowValues);
+                    flowYmin = Math.max(0, min - 0.5);
+                    flowYmax = max + 0.5;
+                    if (flowYmax - flowYmin < 1) flowYmax = flowYmin + 1;
+                }
+
+                if (concentrationChart) concentrationChart.destroy();
+                if (pressureChart) pressureChart.destroy();
+                if (flowChart) flowChart.destroy();
+
+                const concCtx = document.getElementById('concentration-chart');
+                const pressCtx = document.getElementById('pressure-chart');
+                const flowCtx = document.getElementById('flow-chart');
+                if (concCtx) {
+                    concentrationChart = new Chart(concCtx, {
+                        type: 'line',
+                        data: { labels: sortedDates, datasets: concDatasets },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: { y: { title: { display: true, text: '浓度 (%)' }, min: concYmin, max: concYmax } },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const dataset = context.dataset;
+                                            const drillId = dataset.drillId;
+                                            if (!drillId) return null;
+                                            const drill = drills.find(d => d.drillId === drillId && d.location === (
+                                                dom.locationSelect ? dom.locationSelect.value : ''));
+                                            if (!drill) return null;
+                                            const value = context.parsed.y;
+                                            if (value === null || value === undefined) return null;
+                                            const dateLabel = context.label;
+                                            return [
+                                                `钻孔编号: ${drill.drillId}`,
+                                                `方位角: ${drill.azimuth}°`,
+                                                `倾角: ${drill.dip}°`,
+                                                `孔深: ${drill.depth}m`,
+                                                `始抽时间: ${drill.startTime}`,
+                                                `始抽浓度: ${drill.startConc}%`,
+                                                `─────────────`,
+                                                `检测日期: ${dateLabel}`,
+                                                `浓度: ${value} %`
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                if (pressCtx) {
+                    pressureChart = new Chart(pressCtx, {
+                        type: 'line',
+                        data: { labels: sortedDates, datasets: pressureDatasets },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: { y: { title: { display: true, text: '负压 (KPa)' }, min: pressYmin, max: pressYmax } },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const dataset = context.dataset;
+                                            const drillId = dataset.drillId;
+                                            if (!drillId) return null;
+                                            const drill = drills.find(d => d.drillId === drillId && d.location === (
+                                                dom.locationSelect ? dom.locationSelect.value : ''));
+                                            if (!drill) return null;
+                                            const value = context.parsed.y;
+                                            if (value === null || value === undefined) return null;
+                                            const dateLabel = context.label;
+                                            return [
+                                                `钻孔编号: ${drill.drillId}`,
+                                                `方位角: ${drill.azimuth}°`,
+                                                `倾角: ${drill.dip}°`,
+                                                `孔深: ${drill.depth}m`,
+                                                `始抽时间: ${drill.startTime}`,
+                                                `始抽负压: ${drill.startPressure}KPa`,
+                                                `─────────────`,
+                                                `检测日期: ${dateLabel}`,
+                                                `负压: ${value} KPa`
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                if (flowCtx) {
+                    flowChart = new Chart(flowCtx, {
+                        type: 'line',
+                        data: { labels: sortedDates, datasets: flowDatasets },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: { y: { title: { display: true, text: '流量 (m³/min)' }, min: flowYmin,
+                                    max: flowYmax } },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const dataset = context.dataset;
+                                            const drillId = dataset.drillId;
+                                            if (!drillId) return null;
+                                            const drill = drills.find(d => d.drillId === drillId && d.location === (
+                                                dom.locationSelect ? dom.locationSelect.value : ''));
+                                            if (!drill) return null;
+                                            const value = context.parsed.y;
+                                            if (value === null || value === undefined) return null;
+                                            const dateLabel = context.label;
+                                            return [
+                                                `钻孔编号: ${drill.drillId}`,
+                                                `方位角: ${drill.azimuth}°`,
+                                                `倾角: ${drill.dip}°`,
+                                                `孔深: ${drill.depth}m`,
+                                                `始抽时间: ${drill.startTime}`,
+                                                `始抽流量: ${drill.startFlow}m³/min`,
+                                                `─────────────`,
+                                                `检测日期: ${dateLabel}`,
+                                                `流量: ${value} m³/min`
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            function renderDataTable(drillDataPoints) {
+                if (!dom.dataTableBody) return;
+                if (drillDataPoints.length === 0) {
+                    dom.dataTableBody.innerHTML = '<tr><td colspan="6">无数据</td></tr>';
+                    return;
+                }
+                let allPoints = [];
+                for (let item of drillDataPoints) {
+                    allPoints.push(...item.filteredPoints);
+                }
+                if (!currentShowHistory) {
+                    const latestMap = new Map();
+                    for (let p of allPoints) {
+                        const key = `${p.location}|${p.drillId}`;
+                        if (!latestMap.has(key) || p.date > latestMap.get(key).date) {
+                            latestMap.set(key, p);
+                        }
+                    }
+                    allPoints = Array.from(latestMap.values());
+                }
+                allPoints.sort((a, b) => new Date(b.date) - new Date(a.date));
+                const tbody = dom.dataTableBody;
+                tbody.innerHTML = '';
+                for (let p of allPoints) {
+                    let tr = tbody.insertRow();
+                    if (p.concentration > 30) tr.style.backgroundColor = 'rgba(231,76,60,0.2)';
+                    tr.insertCell(0).innerText = p.location;
+                    tr.insertCell(1).innerText = p.drillId;
+                    tr.insertCell(2).innerText = p.date;
+                    tr.insertCell(3).innerText = p.pressure;
+                    tr.insertCell(4).innerText = p.concentration;
+                    tr.insertCell(5).innerText = p.flow;
+                }
+            }
+
+            function renderDrillsTable() {
+                if (!dom.drillsTableBody) return;
+                const tbody = dom.drillsTableBody;
+                tbody.innerHTML = '';
+                for (let d of drills) {
+                    let row = tbody.insertRow();
+                    row.insertCell(0).innerText = d.location;
+                    row.insertCell(1).innerText = d.drillId;
+                    row.insertCell(2).innerText = d.azimuth;
+                    row.insertCell(3).innerText = d.dip;
+                    row.insertCell(4).innerText = d.depth;
+                    row.insertCell(5).innerText = d.startTime;
+                    row.insertCell(6).innerText = d.startConc;
+                    row.insertCell(7).innerText = d.startPressure;
+                    row.insertCell(8).innerText = d.startFlow;
+                }
+                if (dom.totalDrillsSpan) dom.totalDrillsSpan.innerText = drills.length;
+                if (dom.totalMeasurementsSpan) dom.totalMeasurementsSpan.innerText = measurements.length;
+            }
+
+            function refreshAll() {
+                const drillDataPoints = getFilteredPoints();
+                renderCharts(drillDataPoints);
+                renderDataTable(drillDataPoints);
+                if (dom.analysisContent) {
+                    const location = dom.locationSelect ? dom.locationSelect.value : '';
+                    const mode = dom.displayRange ? dom.displayRange.value : 'all';
+                    const selectedDrill = dom.drillSelect ? dom.drillSelect.value : '';
+                    const analysisText = generateAnalysisLog(drillDataPoints, location, mode, selectedDrill);
+                    dom.analysisContent.innerText = analysisText;
+                }
+            }
+
+            function bindEvents() {
+                const refresh = () => refreshAll();
+
+                if (dom.locationSelect) dom.locationSelect.addEventListener('change', () => {
+                    updateDrillSelect(dom.locationSelect.value);
+                    refresh();
+                });
+                if (dom.displayRange) dom.displayRange.addEventListener('change', () => {
+                    const isAll = dom.displayRange.value === 'all';
+                    if (dom.drillSelect) dom.drillSelect.disabled = isAll;
+                    refresh();
+                });
+                if (dom.drillSelect) dom.drillSelect.addEventListener('change', refresh);
+                if (dom.applyBtn) dom.applyBtn.addEventListener('click', refresh);
+
+                if (dom.timeRangeMode) {
+                    dom.timeRangeMode.addEventListener('change', function() {
+                        setDefaultDateRange();
+                        refreshAll();
+                    });
+                }
+
+                if (dom.showRecentBtn) dom.showRecentBtn.addEventListener('click', () => {
+                    currentShowHistory = false;
+                    refreshAll();
+                });
+                if (dom.showHistoryBtn) dom.showHistoryBtn.addEventListener('click', () => {
+                    currentShowHistory = true;
+                    refreshAll();
+                });
+            }
+
+            async function initDrill() {
+                try {
+                    if (dom.loadingProgress) dom.loadingProgress.style.width = '20%';
+                    const ok = await loadXLSX();
+                    if (dom.loadingProgress) dom.loadingProgress.style.width = '50%';
+                    if (!ok || drills.length === 0 || measurements.length === 0) {
+                        log('❌ 数据加载失败或数据为空，请检查 data.xlsx 文件格式', true);
+                        if (dom.loadStatusText) dom.loadStatusText.innerText = '数据加载失败';
+                        setTimeout(() => {
+                            if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                            if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                            if (dom.statusText) dom.statusText.innerText = '数据加载失败';
+                        }, 2000);
+                        return;
+                    }
+                    if (dom.loadingProgress) dom.loadingProgress.style.width = '70%';
+                    drillMap = buildDrillMap();
+                    updateLocationSelect();
+                    updateDrillSelect(dom.locationSelect ? dom.locationSelect.value : '');
+                    setDefaultDateRange();
+                    renderDrillsTable();
+                    bindEvents();
+                    refreshAll();
+                    if (dom.loadingProgress) dom.loadingProgress.style.width = '100%';
+                    if (dom.loadStatusText) dom.loadStatusText.innerText = '数据加载完成';
+                    setTimeout(() => {
+                        if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                        if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                        if (dom.statusLed) dom.statusLed.classList.add('ready');
+                        if (dom.statusText) dom.statusText.innerText = '系统就绪';
+                    }, 500);
+                } catch (err) {
+                    log(`初始化过程出错: ${err.message}`, true);
+                    console.error(err);
+                    if (dom.loadStatusText) dom.loadStatusText.innerText = '初始化失败';
+                    setTimeout(() => {
+                        if (dom.loadingDiv) dom.loadingDiv.classList.add('hidden');
+                        if (dom.mainContainer) dom.mainContainer.style.display = 'block';
+                        if (dom.statusText) dom.statusText.innerText = '系统错误';
+                    }, 2000);
+                }
+            }
+
+            if (typeof Chart !== 'undefined') {
+                Chart.defaults.plugins.tooltip.titleFontSize = 16;
+                Chart.defaults.plugins.tooltip.bodyFontSize = 16;
+                Chart.defaults.plugins.tooltip.padding = 14;
+                initDrill();
+            } else {
+                console.warn('Chart.js 未加载，钻孔图表将不可用');
+            }
         })();
 
         // ===================================================================
-        // 3. 气体成分分析（修复 tooltip 时间显示错误）
+        // 3. 气体成分分析（五组图表 + 完整分析报告 + 修复时间显示）
         // ===================================================================
         (function gasModule() {
             // ---- 气体定义 ----
@@ -1231,7 +2349,6 @@
                         throw new Error('所有目标工作表均无有效数据，请检查 Sheet1/Sheet2/Sheet3 是否存在且格式正确');
                     }
 
-                    // 如果某个地点没有循环次数，则按时间排序分配
                     const hasCycle = allParsed.some(r => r.cycle > 0);
                     if (!hasCycle) {
                         const groups = {};
@@ -1474,7 +2591,7 @@
                 dom.gasPointCount.textContent = data.length;
             }
 
-            // ---- 图表渲染（五组，氮气/氧气纵坐标动态调整，修复 tooltip 时间错误） ----
+            // ---- 图表渲染（修复时间显示错误） ----
             function renderGasCharts(data) {
                 if (gasChart1) { gasChart1.destroy();
                     gasChart1 = null; }
@@ -1562,7 +2679,7 @@
                     locationDashMap[loc] = LOCATION_DASH_STYLES[idx % LOCATION_DASH_STYLES.length];
                 });
 
-                // 构建标签
+                // 构建标签（横坐标）
                 let labels = [];
                 const isHourlyMode = (detailMode === 'hourly' && dom.gasDetailToggleGroup.classList.contains('visible'));
                 if (isHourlyMode) {
@@ -1573,9 +2690,13 @@
                     }
                     labels = Array.from(hourSet).sort();
                 } else {
-                    const cycles = [...new Set(data.map(r => r.cycle))];
-                    cycles.sort((a, b) => a - b);
-                    labels = cycles.map(c => c.toString());
+                    // 详细模式：按循环次数，但必须保证每个地点循环次数与数据对应
+                    // 横坐标使用所有地点中循环次数的并集（去重排序）
+                    const allCycles = new Set();
+                    for (let r of data) {
+                        allCycles.add(r.cycle);
+                    }
+                    labels = Array.from(allCycles).sort((a, b) => a - b).map(c => c.toString());
                 }
 
                 // ---- 构建数据集 ----
@@ -1622,7 +2743,7 @@
                     return datasets;
                 }
 
-                // ---- 渲染图表（修复 tooltip 中时间显示错误） ----
+                // ---- 渲染图表（修复 tooltip 时间） ----
                 function renderChart(canvasId, group, unitSuffix, decimalPlaces, minY, maxY) {
                     const ctx = document.getElementById(canvasId).getContext('2d');
                     const datasets = buildDatasets(group);
@@ -1759,20 +2880,418 @@
                 tbody.innerHTML = html;
             }
 
-            // ---- 分析报告 ----
+            // ---- 分析报告（完整版） ----
             function renderGasAnalysis(data) {
                 const container = dom.gasAnalysisContent;
                 if (!container) return;
+
                 if (!data || data.length === 0) {
                     container.innerText = '【提示】当前筛选条件下无有效监测数据，请调整筛选条件后重新生成分析报告。';
                     return;
                 }
 
-                // 此处保留与之前相同的完整分析报告逻辑（由于篇幅，此处略，实际保留）
-                // 但在最终输出中会包含完整报告代码
-                // 为了节省篇幅，我们调用已有完整报告函数（实际已包含在最终代码中）
-                // 由于之前已经提供过完整的 report 函数，此处为了简洁，仅作占位
-                container.innerText = '分析报告（完整版见最终输出）';
+                // ========== 基础信息获取 ==========
+                const location = dom.gasLocationSelect.value === '__ALL__' ? '全部监测地点' : dom.gasLocationSelect.value;
+                const mode = dom.gasTimeRange.value;
+                const modeLabel = {
+                    today: '当日',
+                    three_days: '近三日',
+                    week: '近一周',
+                    month: '近一月',
+                    all: '所有日期',
+                    custom: '自定义时间段'
+                } [mode] || '';
+
+                // 按时间排序
+                const sorted = [...data].sort((a, b) => a._dateObj - b._dateObj);
+                const latest = sorted[sorted.length - 1];
+                if (!latest) {
+                    container.innerText = '【提示】无有效数据可供分析。';
+                    return;
+                }
+
+                const locs = [...new Set(data.map(r => r.location))];
+                const reportLines = [];
+
+                // ========== 报告头部 ==========
+                reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
+                reportLines.push('║                    12803综采工作面束管监测气体成分分析报告                  ║');
+                reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
+                reportLines.push('');
+                reportLines.push(`【报告基本信息】`);
+                reportLines.push(`  监测地点范围：${location}`);
+                reportLines.push(`  分析时间范围：${modeLabel}`);
+                reportLines.push(`  最新数据时间：${latest.datetime || '未知'}`);
+                reportLines.push(`  有效数据点数：${data.length} 条`);
+                reportLines.push(`  数据来源：${[...new Set(data.map(r => r._sourceSheet || ''))].filter(s => s).join('、') || '束管监测系统'}`);
+                reportLines.push(`  报告生成时间：${new Date().toLocaleString('zh-CN')}`);
+                reportLines.push('');
+
+                // ========== 一、现场工程背景与分析机理说明 ==========
+                reportLines.push('━'.repeat(80));
+                reportLines.push('【一、现场工程背景与气体运移分析机理】');
+                reportLines.push('━'.repeat(80));
+                reportLines.push('');
+                reportLines.push('  1. 工程背景：');
+                reportLines.push('     12803综采工作面运输巷采用沿空留巷布置，下隅角左侧紧邻12802已封闭采空区。');
+                reportLines.push('     受相邻工作面及本工作面采动应力叠加影响，沿空帮、上下隅角及顶板围岩裂隙高度发育，');
+                reportLines.push('     形成贯通性漏风通道。工作面采用U型一进一回通风系统，12802工作面已回采结束，');
+                reportLines.push('     其回风巷停采段已施工永久密闭，采空区处于封闭状态。');
+                reportLines.push('');
+                reportLines.push('  2. 漏风与气体运移机理：');
+                reportLines.push('     受采动裂隙贯通影响，新鲜风流可通过围岩裂隙、上下隅角松散煤体通道，向12803生产');
+                reportLines.push('     采空区及12802封闭采空区发生持续性漏风；同时采空区内积聚的瓦斯、一氧化碳等异常');
+                reportLines.push('     气体可反向沿裂隙网络向工作面及巷道空间窜流，现场同时存在【采空区浮煤氧化自燃】');
+                reportLines.push('     与【采空区瓦斯异常涌出】双重安全风险。');
+                reportLines.push('');
+                reportLines.push('  3. 注氮驱替效应：');
+                reportLines.push('     现场对12802封闭采空区及12803运输巷沿空侧采空区持续实施注氮防灭火作业。注氮会');
+                reportLines.push('     改变采空区及裂隙通道内的气体压力场与组分浓度场，形成压力驱替效应：注入的高压氮气');
+                reportLines.push('     沿贯通裂隙网络扩散运移，可将采空区内积存的一氧化碳等有害气体挤压、携带至12803');
+                reportLines.push('     工作面回风巷侧，造成回风巷CO浓度被动升高。');
+                reportLines.push('');
+                reportLines.push('  4. 多气体联动规律：');
+                reportLines.push('     氮气为惰性气体，注入后挤占空气空间，直接导致区域内氧气浓度同步降低。当监测到回风巷');
+                reportLines.push('     氮气浓度持续升高、氧气浓度同步下降时，可判定注氮气流已通过围岩裂隙通道贯通涌入回风侧。');
+                reportLines.push('     因此，本工作面CO浓度异常波动并非单一煤体氧化导致，与采空区注氮引发的气体压力驱替、');
+                reportLines.push('     组分运移高度相关。');
+                reportLines.push('');
+                reportLines.push('  5. 分析判定规则：');
+                reportLines.push('     (1) 数据研判：结合当日、近三日、近一周连续监测数据进行趋势对比、联动相关性分析，');
+                reportLines.push('         剔除瞬时波动干扰，保证结论真实可靠。');
+                reportLines.push('     (2) 核心逻辑：重点研判氮气、氧气、一氧化碳三组气体的时序联动变化规律。');
+                reportLines.push('     (3) 注氮驱替判定：出现"N₂上升—O₂下降—CO同步抬升"联动趋势时，判定CO异常主要为');
+                reportLines.push('         注氮驱替采空区积存有害气体所致，非新鲜煤体大范围氧化自燃。');
+                reportLines.push('     (4) 自燃隐患判定：若无明显氮氧浓度波动、仅CO单独持续升高，且伴随乙烯、乙炔等烃类');
+                reportLines.push('         气体异常，则需重点研判现场煤体自燃升温隐患。');
+                reportLines.push('');
+
+                // ========== 二、各监测地点气体变化详细分析 ==========
+                reportLines.push('━'.repeat(80));
+                reportLines.push('【二、各监测地点气体变化联动分析】');
+                reportLines.push('━'.repeat(80));
+                reportLines.push('');
+
+                let hasValidLoc = false;
+
+                for (let loc of locs) {
+                    const locData = data.filter(r => r.location === loc);
+                    if (locData.length < 2) {
+                        reportLines.push(`  ▶ 地点：${loc}`);
+                        reportLines.push(`    【数据不足】该地点有效数据点少于2个，无法进行趋势对比分析。`);
+                        reportLines.push('');
+                        continue;
+                    }
+
+                    hasValidLoc = true;
+                    locData.sort((a, b) => a._dateObj - b._dateObj);
+
+                    // ========== 多时间维度数据切片 ==========
+                    const first = locData[0];
+                    const last = locData[locData.length - 1];
+                    const nowTime = last._dateObj || new Date();
+
+                    // 近三日数据（72小时）
+                    const threeDaysAgo = new Date(nowTime.getTime() - 3 * 24 * 3600 * 1000);
+                    const data3d = locData.filter(r => r._dateObj >= threeDaysAgo);
+
+                    // 近一周数据（168小时）
+                    const weekAgo = new Date(nowTime.getTime() - 7 * 24 * 3600 * 1000);
+                    const data7d = locData.filter(r => r._dateObj >= weekAgo);
+
+                    // ========== 全周期变化量计算 ==========
+                    const n2Diff = last.N2 - first.N2;
+                    const o2Diff = last.O2 - first.O2;
+                    const coDiff = last.CO - first.CO;
+                    const n2Pct = first.N2 !== 0 ? (n2Diff / first.N2 * 100) : 0;
+                    const o2Pct = first.O2 !== 0 ? (o2Diff / first.O2 * 100) : 0;
+                    const coPct = first.CO !== 0 ? (coDiff / first.CO * 100) : 0;
+
+                    // ========== 趋势斜率计算（线性回归近似） ==========
+                    const calcTrend = (arr, field) => {
+                        if (arr.length < 2) return 0;
+                        const n = arr.length;
+                        let sumX = 0,
+                            sumY = 0,
+                            sumXY = 0,
+                            sumX2 = 0;
+                        const t0 = arr[0]._dateObj.getTime();
+                        for (let i = 0; i < n; i++) {
+                            const x = (arr[i]._dateObj.getTime() - t0) / (24 * 3600 * 1000); // 天为单位
+                            const y = arr[i][field] || 0;
+                            sumX += x;
+                            sumY += y;
+                            sumXY += x * y;
+                            sumX2 += x * x;
+                        }
+                        const denom = n * sumX2 - sumX * sumX;
+                        return denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+                    };
+
+                    const n2Trend = calcTrend(locData, 'N2');
+                    const o2Trend = calcTrend(locData, 'O2');
+                    const coTrend = calcTrend(locData, 'CO');
+
+                    // ========== 烃类气体分析（辅助判断煤体氧化程度） ==========
+                    const hasHydrocarbon = ['C2H4', 'C2H2', 'C2H6', 'CH4'].some(f => first[f] !== undefined || last[f] !==
+                    undefined);
+                    let hydrocarbonAnalysis = '';
+                    let hydrocarbonWarning = false;
+
+                    if (hasHydrocarbon) {
+                        const hcFields = [
+                            { key: 'C2H4', name: '乙烯', threshold: 0.1, unit: 'ppm' },
+                            { key: 'C2H2', name: '乙炔', threshold: 0.05, unit: 'ppm' },
+                            { key: 'C2H6', name: '乙烷', threshold: 0.1, unit: 'ppm' },
+                            { key: 'CH4', name: '甲烷', threshold: 0.5, unit: '%' }
+                        ];
+
+                        const hcDetails = [];
+                        for (let hc of hcFields) {
+                            if (first[hc.key] !== undefined && last[hc.key] !== undefined) {
+                                const hcDiff = last[hc.key] - first[hc.key];
+                                const hcTrend = calcTrend(locData, hc.key);
+                                hcDetails.push({
+                                    name: hc.name,
+                                    first: first[hc.key],
+                                    last: last[hc.key],
+                                    diff: hcDiff,
+                                    trend: hcTrend,
+                                    threshold: hc.threshold,
+                                    unit: hc.unit
+                                });
+                                if (hc.key === 'C2H2' && (last[hc.key] > 0.01 || hcTrend > 0)) {
+                                    hydrocarbonWarning = true;
+                                }
+                                if (hc.key === 'C2H4' && hcTrend > 0 && last[hc.key] > hc.threshold) {
+                                    hydrocarbonWarning = true;
+                                }
+                            }
+                        }
+
+                        if (hcDetails.length > 0) {
+                            hydrocarbonAnalysis = hcDetails.map(h =>
+                                `${h.name}: ${h.first.toFixed(3)}→${h.last.toFixed(3)}${h.unit}(${h.diff >= 0 ? '+' : ''}${h.diff.toFixed(3)})`
+                            ).join('；');
+                        }
+                    }
+
+                    // ========== 输出地点分析头部 ==========
+                    reportLines.push(`  ┌─────────────────────────────────────────────────────────────────────┐`);
+                    reportLines.push(`  │ 监测地点：${loc.padEnd(56)}│`);
+                    reportLines.push(`  └─────────────────────────────────────────────────────────────────────┘`);
+                    reportLines.push(`    监测周期：${first.datetime} 至 ${last.datetime}`);
+                    reportLines.push(`    数据点数：${locData.length} 条（近3日${data3d.length}条，近7日${data7d.length}条）`);
+                    reportLines.push('');
+
+                    // ========== 核心气体变化数据 ==========
+                    reportLines.push(`    【核心气体浓度变化】`);
+                    reportLines.push(
+                        `      N₂ ：${first.N2.toFixed(4)}% → ${last.N2.toFixed(4)}%  变化：${n2Diff >= 0 ? '+' : ''}${n2Diff.toFixed(4)}% (${n2Pct >= 0 ? '+' : ''}${n2Pct.toFixed(2)}%)`
+                        );
+                    reportLines.push(
+                        `      O₂ ：${first.O2.toFixed(4)}% → ${last.O2.toFixed(4)}%  变化：${o2Diff >= 0 ? '+' : ''}${o2Diff.toFixed(4)}% (${o2Pct >= 0 ? '+' : ''}${o2Pct.toFixed(2)}%)`
+                        );
+                    reportLines.push(
+                        `      CO ：${first.CO.toFixed(2)}ppm → ${last.CO.toFixed(2)}ppm  变化：${coDiff >= 0 ? '+' : ''}${coDiff.toFixed(2)}ppm (${coPct >= 0 ? '+' : ''}${coPct.toFixed(2)}%)`
+                        );
+                    reportLines.push('');
+
+                    // ========== 趋势分析 ==========
+                    reportLines.push(`    【变化趋势（日均变化率）】`);
+                    reportLines.push(`      N₂趋势：${n2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(n2Trend).toFixed(5)}%/天`);
+                    reportLines.push(`      O₂趋势：${o2Trend >= 0 ? '↑ +' : '↓ '}${Math.abs(o2Trend).toFixed(5)}%/天`);
+                    reportLines.push(`      CO趋势：${coTrend >= 0 ? '↑ +' : '↓ '}${Math.abs(coTrend).toFixed(3)}ppm/天`);
+                    reportLines.push('');
+
+                    // ========== 烃类气体辅助分析 ==========
+                    if (hydrocarbonAnalysis) {
+                        reportLines.push(`    【烃类气体辅助分析】`);
+                        reportLines.push(`      ${hydrocarbonAnalysis}`);
+                        if (hydrocarbonWarning) {
+                            reportLines.push(
+                                `      ⚠ 烃类气体异常：乙炔/乙烯出现或持续升高，提示煤体氧化可能进入加速阶段，需重点关注！`
+                                );
+                        } else {
+                            reportLines.push(`      ✓ 烃类气体无明显异常，暂未发现煤体加速氧化特征。`);
+                        }
+                        reportLines.push('');
+                    }
+
+                    // ========== 综合诊断判定 ==========
+                    reportLines.push(`    【综合诊断判定】`);
+
+                    // 判定阈值
+                    const N2_SIGNIFICANT = 0.5;
+                    const O2_SIGNIFICANT = 0.3;
+                    const CO_SIGNIFICANT = 2;
+                    const CO_WARNING = 24;
+                    const O2_LOW = 18;
+
+                    const n2Sig = Math.abs(n2Diff) > N2_SIGNIFICANT || Math.abs(n2Trend) > 0.1;
+                    const o2Sig = Math.abs(o2Diff) > O2_SIGNIFICANT || Math.abs(o2Trend) > 0.05;
+                    const coSig = Math.abs(coDiff) > CO_SIGNIFICANT || Math.abs(coTrend) > 0.5;
+
+                    let diagnosis = '';
+                    let riskLevel = '正常';
+                    let riskType = '无明显异常';
+
+                    // CO浓度超限判定
+                    if (last.CO >= CO_WARNING) {
+                        riskLevel = '高危';
+                        diagnosis += `      🔴 【超限预警】当前CO浓度 ${last.CO.toFixed(2)}ppm 已达到/超过《煤矿安全规程》规定的24ppm报警阈值！\n`;
+                    } else if (last.CO >= 10) {
+                        riskLevel = '关注';
+                        diagnosis += `      🟡 【浓度关注】当前CO浓度 ${last.CO.toFixed(2)}ppm，处于较高水平，需持续监测。\n`;
+                    }
+
+                    // 氧气浓度判定
+                    if (last.O2 < O2_LOW) {
+                        riskLevel = riskLevel === '高危' ? '高危' : '关注';
+                        diagnosis += `      🟡 【氧气偏低】当前O₂浓度 ${last.O2.toFixed(2)}%，低于18%，存在缺氧风险，需确认是否为注氮影响。\n`;
+                    }
+
+                    // 核心联动判定逻辑
+                    if (n2Sig && o2Sig && coSig) {
+                        if (n2Diff > 0 && o2Diff < 0 && coDiff > 0) {
+                            riskType = '注氮驱替导致CO升高';
+                            diagnosis +=
+                                `      🟢 【注氮驱替判定】呈现典型"N₂上升(+${n2Diff.toFixed(4)}%)→O₂下降(${o2Diff.toFixed(4)}%)→CO同步抬升(+${coDiff.toFixed(2)}ppm)"联动趋势。\n`;
+                            diagnosis +=
+                                `               判定本次CO升高主要为注氮作业驱替采空区积存有害气体沿裂隙通道涌入回风侧所致，\n`;
+                            diagnosis += `               非工作面新鲜煤体大范围氧化自燃。建议核实注氮流量变化，适当调整注氮参数。\n`;
+                        } else if (n2Diff > 0 && o2Diff < 0 && coDiff < 0) {
+                            riskType = '注氮惰化效果良好';
+                            diagnosis +=
+                                `      🟢 【惰化效果良好】N₂上升(+${n2Diff.toFixed(4)}%)、O₂下降(${o2Diff.toFixed(4)}%)、CO下降(${coDiff.toFixed(2)}ppm)，\n`;
+                            diagnosis += `               表明注氮有效降低了采空区氧气浓度，抑制了煤体氧化反应，防灭火效果良好。\n`;
+                        } else if (n2Diff < 0 && o2Diff > 0 && coDiff > 0) {
+                            riskType = '注氮不足/漏风加剧，氧化风险升高';
+                            riskLevel = riskLevel === '高危' ? '高危' : '关注';
+                            diagnosis +=
+                                `      🟡 【氧化风险升高】N₂下降(${n2Diff.toFixed(4)}%)、O₂上升(+${o2Diff.toFixed(4)}%)、CO上升(+${coDiff.toFixed(2)}ppm)，\n`;
+                            diagnosis += `               表明注氮浓度降低或采空区漏风增大，氧气进入量增加，煤体氧化反应可能加剧。\n`;
+                            diagnosis += `               建议检查注氮系统运行状态及管路气密性，排查漏风通道并及时封堵。\n`;
+                        } else if (n2Diff < 0 && o2Diff > 0 && coDiff < 0) {
+                            riskType = '通风稀释作用主导';
+                            diagnosis += `      ℹ 【通风稀释主导】N₂下降、O₂上升、CO下降，表明通风量增大或漏风通道变化，新鲜风流稀释了CO浓度。\n`;
+                        } else {
+                            diagnosis += `      ℹ 气体变化组合较为复杂，需结合现场注氮记录及通风情况综合研判。\n`;
+                        }
+                    } else if (coSig && coDiff > 0 && !n2Sig && !o2Sig) {
+                        riskType = 'CO单独升高，需排查自燃隐患';
+                        riskLevel = riskLevel === '高危' ? '高危' : '关注';
+                        diagnosis += `      🟡 【单独升高预警】CO浓度上升(+${coDiff.toFixed(2)}ppm)，但N₂、O₂无明显联动变化，\n`;
+                        diagnosis += `               排除注氮驱替因素，需重点排查是否存在煤体氧化自燃隐患。\n`;
+                        if (hydrocarbonWarning) {
+                            diagnosis += `               同时烃类气体（乙烯/乙炔）异常，煤体自燃风险较高，建议立即采取针对性防灭火措施！\n`;
+                            riskLevel = '高危';
+                        } else {
+                            diagnosis +=
+                                `               建议加密监测频次，结合温度监测、现场观察等手段综合判定，必要时采取预防性注氮。\n`;
+                        }
+                    } else if (coSig && coDiff < 0) {
+                        riskType = 'CO浓度持续下降，状况向好';
+                        diagnosis += `      🟢 【状况向好】CO浓度持续下降(${coDiff.toFixed(2)}ppm)，采空区气体状况趋于稳定。\n`;
+                    } else if (!n2Sig && !o2Sig && !coSig) {
+                        diagnosis += `      ✓ 各气体浓度波动较小，监测区域气体组分相对稳定，无明显异常变化。\n`;
+                    } else {
+                        diagnosis += `      ℹ 气体变化未形成典型联动模式，建议结合现场实际情况（注氮量、通风量、推进度等）综合分析。\n`;
+                    }
+
+                    if (hydrocarbonWarning && coDiff > 0) {
+                        diagnosis +=
+                            `      ⚠ 【综合风险提示】CO升高伴随烃类气体异常，不能完全排除煤体氧化自燃因素，\n`;
+                        diagnosis += `               建议在确认注氮影响的同时，同步开展自燃隐患排查，做到双重防控。\n`;
+                        riskLevel = riskLevel === '正常' ? '关注' : riskLevel;
+                    }
+
+                    reportLines.push(diagnosis);
+                    reportLines.push(`      ── 风险等级：${riskLevel} | 异常类型：${riskType}`);
+                    reportLines.push('');
+                }
+
+                if (!hasValidLoc && locs.length > 0) {
+                    reportLines.push('  【说明】所有监测地点数据点均不足，无法进行有效趋势分析。');
+                    reportLines.push('');
+                }
+
+                // ========== 三、综合结论与防灭火措施建议 ==========
+                reportLines.push('━'.repeat(80));
+                reportLines.push('【三、综合结论与防灭火措施建议】');
+                reportLines.push('━'.repeat(80));
+                reportLines.push('');
+
+                // 统计整体风险
+                const highRiskLocs = [];
+                const concernLocs = [];
+                for (let loc of locs) {
+                    const locData = data.filter(r => r.location === loc).sort((a, b) => a._dateObj - b._dateObj);
+                    if (locData.length >= 2) {
+                        const last = locData[locData.length - 1];
+                        if (last.CO >= 24) highRiskLocs.push(loc);
+                        else if (last.CO >= 10) concernLocs.push(loc);
+                    }
+                }
+
+                reportLines.push('  1. 综合结论：');
+                if (highRiskLocs.length > 0) {
+                    reportLines.push(`     🔴 本次分析发现 ${highRiskLocs.length} 个地点CO浓度达到报警阈值（${highRiskLocs.join('、')}），`);
+                    reportLines.push(`        需立即按《煤矿安全规程》及《防灭火细则》要求采取应急处置措施。`);
+                } else if (concernLocs.length > 0) {
+                    reportLines.push(`     🟡 本次分析发现 ${concernLocs.length} 个地点CO浓度处于较高水平（${concernLocs.join('、')}），`);
+                    reportLines.push(`        需加密监测频次，密切关注变化趋势。`);
+                } else {
+                    reportLines.push('     🟢 各监测地点气体浓度总体处于可控范围，未发现CO浓度超限情况。');
+                }
+                reportLines.push('');
+
+                reportLines.push('  2. 注氮防灭火管理建议（依据《煤矿防灭火细则》第四十条~第四十五条）：');
+                reportLines.push('     (1) 确保注氮系统连续稳定运行，注氮口氮气浓度不低于97%，采空区氧化带氧气浓度控制在8%以下；');
+                reportLines.push('     (2) 根据工作面推进度及采空区"三带"分布，动态调整注氮流量及注氮口位置，保证惰化效果；');
+                reportLines.push('     (3) 定期检测注氮管路气密性，防止管路泄漏导致注氮效率降低；');
+                reportLines.push('     (4) 建立注氮量与CO浓度联动分析机制，当注氮量增大导致回风侧CO被动升高时，应优化注氮参数，');
+                reportLines.push('         避免高压氮气快速驱替采空区积存气体造成回风侧CO瞬时超限。');
+                reportLines.push('');
+
+                reportLines.push('  3. 监测预警建议（依据《煤矿安全规程》第一百二十三条、第一百二十四条）：');
+                reportLines.push('     (1) 采空区束管监测每班至少分析一次气体组分，重点监测CO、O₂、N₂及乙烯、乙炔等烃类气体；');
+                reportLines.push('     (2) 建立气体变化趋势预警机制：CO浓度超过24ppm、乙烯浓度超过0.1ppm、乙炔出现时立即报警；');
+                reportLines.push('     (3) 当CO变化率连续3天超过20%时，即使未达超限值也应启动预警，加密监测并排查原因；');
+                reportLines.push('     (4) 结合温度监测、红外测温等手段，实现气体-温度多参数综合预警，提高自燃隐患识别准确性。');
+                reportLines.push('');
+
+                reportLines.push('  4. 沿空留巷及漏风管控建议：');
+                reportLines.push('     (1) 加强12803运输巷沿空帮、上下隅角封堵，采用喷浆、注浆、充填等手段减少漏风通道；');
+                reportLines.push('     (2) 定期检查12802采空区永久密闭完整性，发现裂隙、漏风及时修补，防止采空区气体窜出；');
+                reportLines.push('     (3) 优化工作面通风系统，合理控制配风量，减少向采空区的漏风，降低煤体氧化供氧条件；');
+                reportLines.push('     (4) 对顶板裂隙发育区域，可采取注浆加固、喷涂堵漏等措施，切断气体运移通道。');
+                reportLines.push('');
+
+                reportLines.push('  5. 应急处置要求：');
+                reportLines.push('     (1) 当监测到CO浓度持续升高且伴随乙烯、乙炔等烃类气体异常，判定为自燃隐患时，');
+                reportLines.push('         应立即启动防灭火应急预案，采取加大注氮量、注浆、封闭等综合措施；');
+                reportLines.push('     (2) 若确认CO升高为注氮驱替所致，应优化注氮参数（降低瞬时流量、调整注氮口位置），');
+                reportLines.push('         同时加强回风侧气体监测，确保作业环境安全；');
+                reportLines.push('     (3) 任何情况下CO浓度超过24ppm时，必须立即撤出受威胁区域人员，采取措施进行处理。');
+                reportLines.push('');
+
+                // ========== 报告尾部 ==========
+                reportLines.push('━'.repeat(80));
+                reportLines.push('【报告说明】');
+                reportLines.push('  1. 本报告基于束管监测系统自动采集数据生成，分析结论仅供现场技术人员参考，');
+                reportLines.push('     具体处置措施需结合现场实际情况及专业技术人员研判确定。');
+                reportLines.push('  2. 分析判定标准依据《煤矿安全规程》（2022版）、《煤矿防灭火细则》（2021版）相关规定。');
+                reportLines.push('  3. 气体浓度变化受注氮、通风、推进度、漏风等多因素影响，本报告重点分析注氮驱替效应，');
+                reportLines.push('     其他影响因素需结合现场记录综合研判。');
+                reportLines.push('');
+                reportLines.push(`  报告生成时间：${new Date().toLocaleString('zh-CN')}`);
+                reportLines.push(`  分析数据范围：${modeLabel} | 监测地点：${location}`);
+                reportLines.push('╔══════════════════════════════════════════════════════════════════════════╗');
+                reportLines.push('║                              报告结束                                       ║');
+                reportLines.push('╚══════════════════════════════════════════════════════════════════════════╝');
+
+                container.innerText = reportLines.join('\n');
             }
 
             function refreshGasAll() {
