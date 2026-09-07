@@ -2908,14 +2908,6 @@
                 reportLines.push(`📊 数据点数：${data.length}`);
                 reportLines.push(`📁 数据来源：${[...new Set(data.map(r => r._sourceSheet || ''))].filter(s => s).join(', ')}`);
                 reportLines.push(`═══════════════════════════════════════════════════════════════════\n`);
-
-                reportLines.push(`【最新监测数据】 (${latest.datetime})`);
-                const order = ['N2', 'CH4', 'C2H2', 'O2', 'C2H6', 'CO', 'C2H4', 'CO2'];
-                for (let g of order) {
-                    let unit = (GROUP1.includes(g) || GROUP2.includes(g)) ? 'ppm' : '%';
-                    let decimals = (GROUP1.includes(g) || GROUP2.includes(g)) ? 2 : 5;
-                    reportLines.push(`   ${GAS_LABELS[g]} = ${latest[g]?.toFixed(decimals) ?? '-'} ${unit}`);
-                }
                 reportLines.push('');
 
                 reportLines.push(`【氮气、氧气浓度变化对一氧化碳的影响分析】`);
